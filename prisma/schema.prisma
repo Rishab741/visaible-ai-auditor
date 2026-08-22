@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model AuditScan {
+  id              String         @id @default(cuid())
+  targetUrl       String
+  hotelName       String?
+  status          String         @default("PENDING") // PENDING, CRAWLING, ANALYZING, COMPLETED, FAILED
+  overallScore    Int            @default(0)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  pages           ScannedPage[]
+  suggestions     OptimizationSuggestion[]
+}
+
+model ScannedPage {
+  id              String     @id @default(cuid())
+  auditScanId     String
+  url             String
+  pageType        String     @default("GENERAL") // HOMEPAGE, ROOMS, AMENITIES, LOCATION, DINING, POLICIES
+  title           String?
+  markdownContent String
+  rawJsonLd       String?    // Stored as stringified JSON
+  scannedAt       DateTime   @default(now())
+  auditScan       AuditScan  @relation(fields: [auditScanId], references: [id], onDelete: Cascade)
+}
+
+model OptimizationSuggestion {
+  id              String     @id @default(cuid())
+  auditScanId     String
+  category        String     // CONTENT_CLARITY, PAGE_COVERAGE, STRUCTURED_DATA, INTERNAL_CONSISTENCY, STRUCTURAL_SIGNALS
+  severity        String     // HIGH, MEDIUM, LOW
+  issue           String
+  impactReason    String     // Why AI search/recommendation engines struggle with this
+  suggestedFix    String     // Actionable fix / structured example
+  affectedUrls    String     // Comma-separated or JSON array string
+  currentSnippet  String?    // Problematic text snippet if available
+  confidenceScore Float      @default(0.9)
+  createdAt       DateTime   @default(now())
+  auditScan       AuditScan  @relation(fields: [auditScanId], references: [id], onDelete: Cascade)
+}
