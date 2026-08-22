@@ -33,16 +33,23 @@ const AdditionalSuggestionSchema = z.object({
   confidenceScore: z.number().min(0).max(1).describe('Model confidence score between 0 and 1'),
 });
 
-const AnalysisReportSchema = z.object({
-  hotelName: z.string().describe('Name of the hotel extracted from pages'),
-  summary: z.string().describe('A 2-3 sentence executive summary of the hotel website AI-readiness'),
-  hardFindingWriteups: z
-    .array(HardFindingWriteupSchema)
-    .describe('Exactly one write-up per deterministic finding provided, in the same order — do not add, remove, or reorder'),
-  additionalSuggestions: z
-    .array(AdditionalSuggestionSchema)
-    .describe('Additional non-generic suggestions for qualitative issues the deterministic checks cannot detect. Do not duplicate the deterministic findings.'),
-});
+// Built per-call with .length(hardFindings.length) so a model response with the
+// wrong number of write-ups fails schema validation — triggering generateObject's
+// built-in retry — instead of silently degrading (see the fallback that used to
+// exist here, patched with the raw fact when a write-up was missing).
+function buildAnalysisReportSchema(hardFindingCount: number) {
+  return z.object({
+    hotelName: z.string().describe('Name of the hotel extracted from pages'),
+    summary: z.string().describe('A 2-3 sentence executive summary of the hotel website AI-readiness'),
+    hardFindingWriteups: z
+      .array(HardFindingWriteupSchema)
+      .length(hardFindingCount)
+      .describe('Exactly one write-up per deterministic finding provided, in the same order — do not add, remove, or reorder'),
+    additionalSuggestions: z
+      .array(AdditionalSuggestionSchema)
+      .describe('Additional non-generic suggestions for qualitative issues the deterministic checks cannot detect. Do not duplicate the deterministic findings.'),
+  });
+}
 
 export interface SuggestionItem {
   category: z.infer<typeof CategoryEnum>;
@@ -119,11 +126,12 @@ ${JSON.stringify(preparedPages, null, 2)}
 
   const { object } = await generateObject({
     model: reasoningModel,
-    schema: AnalysisReportSchema,
+    schema: buildAnalysisReportSchema(signals.hardFindings.length),
     system: systemPrompt,
     prompt: userPrompt,
     temperature: 0,
     seed: stableSeed(contentFingerprint),
+    maxRetries: 3, // schema violations (e.g. wrong hardFindingWriteups count) and transient API errors both retry here
   });
 
   const hardFindingSuggestions: SuggestionItem[] = signals.hardFindings.map((finding: HardFinding, i: number) => {
@@ -131,9 +139,9 @@ ${JSON.stringify(preparedPages, null, 2)}
     return {
       category: finding.category,
       severity: finding.severity,
-      issue: writeup?.issue ?? finding.fact,
-      impactReason: writeup?.impactReason ?? '',
-      suggestedFix: writeup?.suggestedFix ?? '',
+      issue: writeup.issue,
+      impactReason: writeup.impactReason,
+      suggestedFix: writeup.suggestedFix,
       affectedUrls: finding.affectedUrls,
       confidenceScore: 1, // deterministically verified, not model-estimated
     };

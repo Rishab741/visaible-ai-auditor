@@ -17,6 +17,7 @@ export async function resolveHotelWebsite(query: string): Promise<string> {
     stopWhen: stepCountIs(3),
     temperature: 0,
     seed: stableSeed(query.toLowerCase().trim()),
+    maxRetries: 3,
     system: `You are a precise web research assistant. Given a hotel name or description, use Google Search to find the hotel's own official website homepage.
 
 Rules:
