@@ -78,6 +78,7 @@ export async function runAuditScan(rootQuery: string) {
     }
 
     const crawledPages: ExtractedPageData[] = [];
+    const pageTypes = new Map<string, string>();
 
     for (let i = 0; i < discoveredUrls.length; i += CRAWL_CONCURRENCY) {
       const batch = discoveredUrls.slice(i, i + CRAWL_CONCURRENCY);
@@ -87,13 +88,15 @@ export async function runAuditScan(rootQuery: string) {
             const pageData = await crawlHotelPage(url);
             if (pageData.markdown && pageData.markdown.length > 50) {
               crawledPages.push(pageData);
+              const pageType = classifyPageType(url, targetUrl);
+              pageTypes.set(pageData.url, pageType);
 
               // Save page to DB
               await prisma.scannedPage.create({
                 data: {
                   auditScanId: scan.id,
                   url: pageData.url,
-                  pageType: classifyPageType(url, targetUrl),
+                  pageType,
                   title: pageData.title,
                   markdownContent: pageData.markdown,
                   rawJsonLd: JSON.stringify(pageData.schemaJsonLd),
@@ -118,8 +121,9 @@ export async function runAuditScan(rootQuery: string) {
       data: { status: 'ANALYZING' },
     });
 
-    // 4. Run Multi-Pass AI Analysis
-    const analysisReport = await analyzeHotelWebsite(crawledPages);
+    // 4. Run Multi-Pass AI Analysis (category/overall scores are computed
+    // deterministically from the crawl — see lib/signals.ts)
+    const analysisReport = await analyzeHotelWebsite(crawledPages, pageTypes);
 
     // 5. Store Suggestions in DB
     for (const item of analysisReport.suggestions) {
@@ -145,6 +149,7 @@ export async function runAuditScan(rootQuery: string) {
         hotelName: analysisReport.hotelName,
         summary: analysisReport.summary,
         overallScore: analysisReport.overallAiReadabilityScore,
+        categoryScores: analysisReport.categoryScores,
         status: 'COMPLETED',
       },
       include: {

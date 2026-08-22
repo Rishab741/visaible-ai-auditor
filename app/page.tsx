@@ -45,6 +45,7 @@ interface AuditScanResult {
   hotelName: string;
   summary: string | null;
   overallScore: number;
+  categoryScores: Record<string, number> | null;
   status: string;
   pages: ScannedPage[];
   suggestions: Suggestion[];
@@ -390,6 +391,44 @@ export default function Dashboard() {
                   Executive Summary
                 </p>
                 <p className="text-sm text-slate-300 leading-relaxed">{auditData.summary}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Deterministic Category Score Breakdown */}
+          {auditData.categoryScores && (
+            <div
+              className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl animate-fade-in-up"
+              style={{ animationDelay: '75ms' }}
+            >
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-indigo-400" /> Score Breakdown
+              </h3>
+              <p className="text-[11px] text-slate-500 mb-4">
+                Computed deterministically from crawled schema, page coverage, structure, and cross-page facts — not model-generated, so re-running an audit reproduces the same scores.
+              </p>
+              <div className="space-y-3">
+                {categories
+                  .filter((c) => c.key !== 'ALL')
+                  .map((cat) => {
+                    const score = auditData.categoryScores?.[cat.key] ?? 0;
+                    return (
+                      <div key={cat.key}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-slate-300">{cat.label}</span>
+                          <span className="font-mono text-slate-400">{score}/100</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                            }`}
+                            style={{ width: `${score}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           )}

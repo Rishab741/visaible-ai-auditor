@@ -186,12 +186,16 @@ function dedupeInScope(urls: string[], origin: string, scopePrefix: string): str
   return out;
 }
 
-async function fetchText(url: string): Promise<string | null> {
-  try {
-    const res = await fetch(url, { headers: UA_HEADERS });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
+async function fetchText(url: string, retries = 2): Promise<string | null> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, { headers: UA_HEADERS });
+      if (res.ok) return await res.text();
+      if (attempt === retries) return null;
+    } catch {
+      if (attempt === retries) return null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
   }
+  return null;
 }
