@@ -2,6 +2,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { reasoningModel } from './ai';
 import { ExtractedPageData } from './crawler';
+import { stableSeed } from './utils';
 
 // Define the schema for structured suggestions output
 const SuggestionItemSchema = z.object({
@@ -80,11 +81,18 @@ ${JSON.stringify(preparedPages, null, 2)}
 Provide a thorough analysis with an overall AI readability score and actionable suggestions mapped to the 5 categories.
 `;
 
+  // Low temperature + a seed derived from the crawled content keep repeated
+  // audits of the same pages converging on the same suggestions instead of
+  // drifting each run, since the model would otherwise sample non-deterministically.
+  const contentFingerprint = preparedPages.map((p) => `${p.url}:${p.markdownExcerpt.length}`).join('|');
+
   const { object } = await generateObject({
     model: reasoningModel,
     schema: AnalysisReportSchema,
     system: systemPrompt,
     prompt: userPrompt,
+    temperature: 0,
+    seed: stableSeed(contentFingerprint),
   });
 
   return object;

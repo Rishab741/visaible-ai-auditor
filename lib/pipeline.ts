@@ -1,10 +1,16 @@
 import { crawlHotelPage, ExtractedPageData } from './crawler';
-import { discoverPages } from './discovery';
+import { discoverPages, normalizeUrl } from './discovery';
 import { analyzeHotelWebsite } from './analyzer';
 import { resolveHotelWebsite } from './resolver';
 import { prisma } from './prisma';
 
 const CRAWL_CONCURRENCY = 5;
+// How long a completed scan stays valid as a cached result for the same target
+// URL. Crawling and LLM analysis both introduce variance (live page content can
+// change, and the model samples non-deterministically) — serving the same
+// recent scan back out means the same search reliably shows the same output
+// instead of drifting on every request.
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function isUrlLike(input: string): boolean {
   if (/\s/.test(input)) return false;
@@ -32,11 +38,28 @@ export async function runAuditScan(rootQuery: string) {
 
   // Accept either a direct URL/domain, or a free-text hotel name/description —
   // the latter is resolved to the hotel's official site via search-grounded AI lookup.
-  const targetUrl = isUrlLike(trimmedInput)
+  const resolvedUrl = isUrlLike(trimmedInput)
     ? trimmedInput.startsWith('http')
       ? trimmedInput
       : `https://${trimmedInput}`
     : await resolveHotelWebsite(trimmedInput);
+
+  // Canonicalize so different phrasings of the same search ("Ace Hotel Sydney"
+  // vs. the resolved URL with/without a trailing slash) converge on one cache key.
+  const targetUrl = normalizeUrl(resolvedUrl);
+
+  const cachedScan = await prisma.auditScan.findFirst({
+    where: {
+      targetUrl,
+      status: 'COMPLETED',
+      updatedAt: { gte: new Date(Date.now() - CACHE_TTL_MS) },
+    },
+    orderBy: { updatedAt: 'desc' },
+    include: { pages: true, suggestions: true },
+  });
+  if (cachedScan) {
+    return cachedScan;
+  }
 
   // 1. Create Initial Scan Record in SQLite
   const scan = await prisma.auditScan.create({
@@ -120,6 +143,7 @@ export async function runAuditScan(rootQuery: string) {
       where: { id: scan.id },
       data: {
         hotelName: analysisReport.hotelName,
+        summary: analysisReport.summary,
         overallScore: analysisReport.overallAiReadabilityScore,
         status: 'COMPLETED',
       },

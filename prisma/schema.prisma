@@ -11,6 +11,7 @@ model AuditScan {
   id              String         @id @default(cuid())
   targetUrl       String
   hotelName       String?
+  summary         String?
   status          String         @default("PENDING") // PENDING, CRAWLING, ANALYZING, COMPLETED, FAILED
   overallScore    Int            @default(0)
   createdAt       DateTime       @default(now())

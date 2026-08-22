@@ -150,6 +150,11 @@ function resolveLink(href: string, base: string, origin: string, scopePrefix: st
   }
 }
 
+/** Canonicalizes a URL (strips hash/query, trailing slash) so the same page is recognized consistently across discovery, scoping, and result caching. */
+export function normalizeUrl(rawUrl: string): string {
+  return normalize(rawUrl);
+}
+
 function normalize(rawUrl: string): string {
   const u = new URL(rawUrl);
   u.hash = '';

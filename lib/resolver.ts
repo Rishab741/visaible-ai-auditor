@@ -1,6 +1,7 @@
 import { generateText, stepCountIs } from 'ai';
 import { google } from '@ai-sdk/google';
 import { fastModel } from './ai';
+import { stableSeed } from './utils';
 
 const URL_REGEX = /https?:\/\/[^\s"'<>)\]]+/i;
 
@@ -14,6 +15,8 @@ export async function resolveHotelWebsite(query: string): Promise<string> {
     model: fastModel,
     tools: { google_search: google.tools.googleSearch({}) },
     stopWhen: stepCountIs(3),
+    temperature: 0,
+    seed: stableSeed(query.toLowerCase().trim()),
     system: `You are a precise web research assistant. Given a hotel name or description, use Google Search to find the hotel's own official website homepage.
 
 Rules:
