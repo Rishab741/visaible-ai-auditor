@@ -1,5 +1,6 @@
 import { crawlHotelPage, ExtractedPageData } from './crawler';
 import { discoverPages, normalizeUrl } from './discovery';
+import { investigateGaps } from './investigator';
 import { analyzeHotelWebsite } from './analyzer';
 import { resolveHotelWebsite } from './resolver';
 import { prisma } from './prisma';
@@ -113,6 +114,32 @@ export async function runAuditScan(rootQuery: string) {
 
     if (crawledPages.length === 0) {
       throw new Error('Could not crawl any accessible pages from the target URL.');
+    }
+
+    // 2b. Gap-filling investigator agent: only runs (and only spends an LLM
+    // call) if static discovery missed an expected page category entirely.
+    // Strictly additive — never removes or replaces anything already crawled.
+    const bonusPages = await investigateGaps({
+      targetUrl,
+      presentPageTypes: new Set(pageTypes.values()),
+      alreadyCrawledUrls: new Set(crawledPages.map((p) => p.url)),
+    });
+
+    for (const pageData of bonusPages) {
+      crawledPages.push(pageData);
+      const pageType = classifyPageType(pageData.url, targetUrl);
+      pageTypes.set(pageData.url, pageType);
+
+      await prisma.scannedPage.create({
+        data: {
+          auditScanId: scan.id,
+          url: pageData.url,
+          pageType,
+          title: pageData.title,
+          markdownContent: pageData.markdown,
+          rawJsonLd: JSON.stringify(pageData.schemaJsonLd),
+        },
+      });
     }
 
     // 3. Update status to ANALYZING

@@ -155,6 +155,42 @@ export function normalizeUrl(rawUrl: string): string {
   return normalize(rawUrl);
 }
 
+/**
+ * Fetches searchPageUrl and returns same-origin, in-scope links whose href
+ * path or visible text matches any of the given keywords. Used by the gap-
+ * filling investigator agent to look for a specific missing page category
+ * (e.g. "policies") without ever escaping the site's own path-prefix scope —
+ * the same scoping discoverPages() uses, so the agent can't wander into
+ * sibling properties or sitewide blog content either.
+ */
+export async function findLinksByKeywords(
+  searchPageUrl: string,
+  scopeRootUrl: string,
+  keywords: string[]
+): Promise<string[]> {
+  const origin = new URL(scopeRootUrl).origin;
+  const scopePrefix = getScopePrefix(scopeRootUrl);
+  const lowerKeywords = keywords.map((k) => k.toLowerCase());
+
+  const html = await fetchText(searchPageUrl);
+  if (!html) return [];
+
+  const $ = cheerio.load(html);
+  const matches = new Set<string>();
+
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (!href) return;
+    const linkText = $(el).text().toLowerCase();
+    const matchesKeyword = lowerKeywords.some((k) => href.toLowerCase().includes(k) || linkText.includes(k));
+    if (!matchesKeyword) return;
+    const resolved = resolveLink(href, searchPageUrl, origin, scopePrefix);
+    if (resolved) matches.add(resolved);
+  });
+
+  return Array.from(matches);
+}
+
 function normalize(rawUrl: string): string {
   const u = new URL(rawUrl);
   u.hash = '';

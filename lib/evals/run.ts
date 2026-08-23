@@ -1,8 +1,16 @@
 import 'dotenv/config';
-import { runSuite, report, EvalResult } from './framework';
+import { runSuite, report, EvalResult, EvalCase } from './framework';
 import { signalsEvalCases } from './signals.eval';
 import { resolverEvalCases } from './resolver.eval';
 import { pipelineEvalCases } from './pipeline.eval';
+import { investigatorEvalCases } from './investigator.eval';
+
+const SUITES: Array<{ label: string; cases: EvalCase[] }> = [
+  { label: 'signals (deterministic, no network)', cases: signalsEvalCases },
+  { label: 'investigator (Phase 2 gap-filling agent)', cases: investigatorEvalCases },
+  { label: 'resolver (live, real API calls)', cases: resolverEvalCases },
+  { label: 'pipeline (live, real crawl + real API calls)', cases: pipelineEvalCases },
+];
 
 async function main() {
   const liveOnly = process.argv.includes('--live-only');
@@ -10,17 +18,11 @@ async function main() {
 
   const results: EvalResult[] = [];
 
-  if (!liveOnly) {
-    console.log('\n=== signals (fast, deterministic, no network) ===');
-    results.push(...(await runSuite(signalsEvalCases)));
-  }
-
-  if (!fastOnly) {
-    console.log('\n=== resolver (live, real API calls) ===');
-    results.push(...(await runSuite(resolverEvalCases)));
-
-    console.log('\n=== pipeline (live, real crawl + real API calls) ===');
-    results.push(...(await runSuite(pipelineEvalCases)));
+  for (const suite of SUITES) {
+    const cases = suite.cases.filter((c) => (liveOnly ? c.tier === 'live' : fastOnly ? c.tier === 'fast' : true));
+    if (cases.length === 0) continue;
+    console.log(`\n=== ${suite.label} ===`);
+    results.push(...(await runSuite(cases)));
   }
 
   const ok = report(results);
