@@ -157,6 +157,10 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
     // deterministically from the crawl — see lib/signals.ts)
     const analysisReport = await analyzeHotelWebsite(crawledPages, pageTypes);
 
+    // Persisted so the on-demand implementation-snippet agent (lib/snippetAgent.ts)
+    // can format output for this site's CMS later without re-crawling.
+    const detectedCms = crawledPages.some((p) => p.cms === 'wordpress') ? 'wordpress' : 'unknown';
+
     // 5. Store Suggestions in DB
     for (const item of analysisReport.suggestions) {
       await prisma.optimizationSuggestion.create({
@@ -167,7 +171,6 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
           issue: item.issue,
           impactReason: item.impactReason,
           suggestedFix: item.suggestedFix,
-          implementationSnippet: item.implementationSnippet || null,
           affectedUrls: JSON.stringify(item.affectedUrls),
           currentSnippet: item.currentSnippet || null,
           confidenceScore: item.confidenceScore,
@@ -183,6 +186,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
         summary: analysisReport.summary,
         overallScore: analysisReport.overallAiReadabilityScore,
         categoryScores: analysisReport.categoryScores,
+        detectedCms,
         status: 'COMPLETED',
       },
       include: {

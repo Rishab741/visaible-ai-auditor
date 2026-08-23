@@ -16,6 +16,7 @@ model AuditScan {
   overallScore    Int            @default(0)
   categoryScores  Json?          // Deterministic per-category breakdown (CONTENT_CLARITY, PAGE_COVERAGE, STRUCTURED_DATA, INTERNAL_CONSISTENCY, STRUCTURAL_SIGNALS), computed in lib/signals.ts
   pipelineVersion Int            @default(0) // lib/version.ts PIPELINE_VERSION at scan time — cache lookups only match the current version, so scans from older scoring logic age out automatically
+  detectedCms     String?        // "wordpress" | "unknown" — see lib/crawler.ts DetectedCms; used by the on-demand implementation-snippet agent
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   pages           ScannedPage[]
