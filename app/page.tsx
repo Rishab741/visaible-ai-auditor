@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, Search, Clock } from 'lucide-react';
+import Link from 'next/link';
+import { Globe, Search, Clock, LayoutDashboard } from 'lucide-react';
 
 interface RecentAudit {
   id: string;
@@ -52,7 +53,14 @@ export default function HomePage() {
   };
 
   return (
-    <main className="aurora-backdrop min-h-screen text-slate-100 flex flex-col items-center justify-center p-6">
+    <main className="aurora-backdrop min-h-screen text-slate-100 flex flex-col items-center justify-center p-6 relative">
+      <Link
+        href="/dashboard"
+        className="absolute top-6 right-6 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors animate-fade-in-up"
+      >
+        <LayoutDashboard className="h-4 w-4" /> Dashboard
+      </Link>
+
       <div className="w-full max-w-2xl">
         {/* Hero */}
         <div className="text-center mb-10 animate-fade-in-up">

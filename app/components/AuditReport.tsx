@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   Sparkles,
   AlertTriangle,
@@ -18,6 +19,9 @@ import {
   ClipboardList,
   Wand2,
   Loader2,
+  ArrowLeft,
+  LayoutDashboard,
+  MinusCircle,
 } from 'lucide-react';
 
 export interface Suggestion {
@@ -206,10 +210,14 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
   const [suggestions, setSuggestions] = useState(data.suggestions);
-  const [generatingSnippetId, setGeneratingSnippetId] = useState<string | null>(null);
-  const [snippetErrors, setSnippetErrors] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // The one main "act on this" action for the whole report, instead of a
+  // per-card trigger — generates every applicable snippet in one go.
+  const [bulkGenerating, setBulkGenerating] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [notApplicableIds, setNotApplicableIds] = useState<Set<string>>(new Set());
 
   // AuditReport only ever mounts fresh for a given scan (each /audit/[id]
   // navigation is a new page, so a new mount) — no need to sync `suggestions`
@@ -238,19 +246,36 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
     });
   };
 
-  const generateSnippet = async (suggestionId: string) => {
-    setGeneratingSnippetId(suggestionId);
-    setSnippetErrors((prev) => ({ ...prev, [suggestionId]: '' }));
+  const pendingCount = suggestions.filter((s) => !s.implementationSnippet && !notApplicableIds.has(s.id)).length;
+
+  const handleBulkGenerate = async () => {
+    setBulkGenerating(true);
+    setBulkError(null);
     try {
-      const res = await fetch(`/api/suggestions/${suggestionId}/snippet`, { method: 'POST' });
+      const res = await fetch(`/api/audit/${data.id}/snippets`, { method: 'POST' });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to generate snippet');
-      setSuggestions((prev) => prev.map((s) => (s.id === suggestionId ? { ...s, implementationSnippet: json.implementationSnippet } : s)));
+      if (!res.ok) throw new Error(json.error || 'Failed to generate implementation fixes');
+
+      const results = json.results as Array<{ id: string; implementationSnippet?: string; notApplicable?: boolean }>;
+      const resultsById = new Map(results.map((r) => [r.id, r]));
+
+      setSuggestions((prev) =>
+        prev.map((s) => {
+          const result = resultsById.get(s.id);
+          return result?.implementationSnippet ? { ...s, implementationSnippet: result.implementationSnippet } : s;
+        })
+      );
+      setNotApplicableIds((prev) => {
+        const next = new Set(prev);
+        for (const r of results) {
+          if (r.notApplicable) next.add(r.id);
+        }
+        return next;
+      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to generate snippet';
-      setSnippetErrors((prev) => ({ ...prev, [suggestionId]: message }));
+      setBulkError(err instanceof Error ? err.message : 'Failed to generate implementation fixes');
     } finally {
-      setGeneratingSnippetId(null);
+      setBulkGenerating(false);
     }
   };
 
@@ -289,6 +314,16 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
 
   return (
     <section ref={resultsRef} className="max-w-6xl mx-auto space-y-8 scroll-mt-6">
+      {/* Nav */}
+      <div className="flex items-center justify-between animate-fade-in-up">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
+          <ArrowLeft className="h-4 w-4" /> Back to Search
+        </Link>
+        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
+          <LayoutDashboard className="h-4 w-4" /> Dashboard
+        </Link>
+      </div>
+
       {/* Executive Scorecard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
         <div className="glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform">
@@ -394,6 +429,47 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
         </div>
       </div>
 
+      {/* Generate Implementation Fixes — the one main agentic action, not a per-card trigger */}
+      <div
+        className="glass-panel rounded-2xl p-5 md:p-6 border-emerald-500/20 bg-gradient-to-br from-emerald-950/30 to-teal-950/10 animate-fade-in-up"
+        style={{ animationDelay: '105ms' }}
+      >
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-900/30">
+              <Wand2 className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Generate Implementation Fixes</h3>
+              <p className="text-xs text-slate-400 mt-0.5 max-w-md">
+                Turn every applicable suggestion into a ready-to-paste code snippet, grounded in the actual crawled content — one action for the whole report.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleBulkGenerate}
+            disabled={bulkGenerating || pendingCount === 0}
+            className="shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-emerald-900/30"
+          >
+            {bulkGenerating ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Generating fixes...
+              </>
+            ) : pendingCount === 0 ? (
+              <>
+                <Check className="h-4 w-4" /> All Fixes Generated
+              </>
+            ) : (
+              <>
+                <Wand2 className="h-4 w-4" /> Generate {pendingCount} Implementation Fix{pendingCount === 1 ? '' : 'es'}
+              </>
+            )}
+          </button>
+        </div>
+        {bulkError && <p className="text-xs text-rose-400 mt-3">{bulkError}</p>}
+      </div>
+
       {/* Severity Breakdown + Category Filter Pills + Export */}
       <div className="space-y-3 pt-2 border-t border-white/10 animate-fade-in-up" style={{ animationDelay: '120ms' }}>
         <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
@@ -460,8 +536,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
                   }
                 })();
                 const isOpen = !collapsedIds.has(item.id);
-                const isGenerating = generatingSnippetId === item.id;
-                const snippetError = snippetErrors[item.id];
+                const isNotApplicable = notApplicableIds.has(item.id);
 
                 return (
                   <div
@@ -513,8 +588,8 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
                             <pre className="text-slate-200 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1">{item.suggestedFix}</pre>
                           </div>
 
-                          {/* Implementation Snippet — on-demand agentic action, not auto-generated with the audit */}
-                          {item.implementationSnippet ? (
+                          {/* Implementation Snippet — populated by the report-level "Generate Implementation Fixes" action */}
+                          {item.implementationSnippet && (
                             <div className="bg-slate-950/50 p-3.5 rounded-lg border border-white/5">
                               <div className="flex items-center justify-between mb-1">
                                 <p className="text-xs font-semibold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -537,27 +612,11 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
                               </div>
                               <pre className="text-emerald-100/90 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1 overflow-x-auto">{item.implementationSnippet}</pre>
                             </div>
-                          ) : (
-                            <div className="flex items-center justify-between gap-3 bg-white/[0.03] border border-dashed border-white/10 rounded-lg p-3">
-                              <p className="text-xs text-slate-500">
-                                {snippetError ? <span className="text-rose-400">{snippetError}</span> : 'Generate a ready-to-paste implementation for this fix.'}
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => generateSnippet(item.id)}
-                                disabled={isGenerating}
-                                className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-60 px-3 py-1.5 rounded-lg transition-all"
-                              >
-                                {isGenerating ? (
-                                  <>
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Wand2 className="h-3.5 w-3.5" /> Generate Snippet
-                                  </>
-                                )}
-                              </button>
+                          )}
+                          {isNotApplicable && !item.implementationSnippet && (
+                            <div className="flex items-center gap-2 text-xs text-slate-500 bg-white/[0.03] border border-dashed border-white/10 rounded-lg p-3">
+                              <MinusCircle className="h-3.5 w-3.5 shrink-0" />
+                              This fix isn&apos;t the kind of thing that reduces to a pasteable snippet.
                             </div>
                           )}
 
