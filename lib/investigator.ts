@@ -55,6 +55,7 @@ export async function investigateGaps(params: {
       stopWhen: stepCountIs(MAX_INVESTIGATOR_STEPS),
       temperature: 0,
       seed: stableSeed(params.targetUrl + missingTypes.join(',')),
+      maxRetries: 3,
       system: `You are investigating gaps in a website crawl. The initial discovery pass did NOT find a page for these categories: ${missingTypes.join(', ')}.
 
 For each missing category, use search_links on the homepage (${params.targetUrl}) with relevant keywords, then crawl_page any promising match. Only crawl a page you have real evidence is relevant from its URL or link text — never guess or fabricate a URL. If you can't find a page for a category after searching, move on to the next one.`,

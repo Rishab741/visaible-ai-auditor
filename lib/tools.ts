@@ -14,10 +14,16 @@ export function createCrawlPageTool(onCrawled: (page: ExtractedPageData) => void
     description:
       'Fetch and extract a single web page: clean text content, JSON-LD structured data, and structural signals. Only call this on a URL you have real evidence is relevant — never guess a URL.',
     inputSchema: z.object({
-      url: z.string().url().describe('The absolute URL of the page to crawl'),
+      // Deliberately not z.string().url(): a strict format constraint on a
+      // tool-call *input* schema makes Gemini's function-calling occasionally
+      // fail the whole generation step with a schema-validation error instead
+      // of a recoverable one. Validate loosely here, strictly inside execute,
+      // where a bad value becomes a clean result the agent can react to.
+      url: z.string().describe('The absolute URL of the page to crawl'),
     }),
     execute: async ({ url }) => {
       try {
+        new URL(url); // throws for a malformed URL, caught below
         const page = await crawlHotelPage(url);
         onCrawled(page);
         return {
@@ -41,7 +47,8 @@ export function createSearchLinksTool(scopeRootUrl: string) {
     description:
       "Search a page's links for URLs matching keywords, e.g. find a policies or cancellation page by searching the homepage for those keywords. Scoped to this property's own pages only.",
     inputSchema: z.object({
-      searchPageUrl: z.string().url().describe('URL of the page to search for links on (usually the homepage)'),
+      // See createCrawlPageTool for why this is a plain string, not z.string().url().
+      searchPageUrl: z.string().describe('URL of the page to search for links on (usually the homepage)'),
       keywords: z
         .array(z.string())
         .min(1)
@@ -49,6 +56,7 @@ export function createSearchLinksTool(scopeRootUrl: string) {
     }),
     execute: async ({ searchPageUrl, keywords }) => {
       try {
+        new URL(searchPageUrl); // throws for a malformed URL, caught below
         const matches = await findLinksByKeywords(searchPageUrl, scopeRootUrl, keywords);
         return { success: true, matches };
       } catch (err) {
