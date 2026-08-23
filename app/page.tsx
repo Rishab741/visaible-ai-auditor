@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Globe,
   Sparkles,
@@ -21,6 +21,9 @@ import {
   History,
   RefreshCw,
   Code2,
+  ChevronDown,
+  ClipboardList,
+  Clock,
 } from 'lucide-react';
 
 interface Suggestion {
@@ -77,9 +80,9 @@ const PAGE_TYPE_LABELS: Record<string, string> = {
 };
 
 const SEVERITY_STYLES: Record<Suggestion['severity'], string> = {
-  HIGH: 'bg-red-950 text-red-400 border border-red-800',
-  MEDIUM: 'bg-amber-950 text-amber-400 border border-amber-800',
-  LOW: 'bg-blue-950 text-blue-400 border border-blue-800',
+  HIGH: 'bg-red-950/70 text-red-400 border border-red-800/70',
+  MEDIUM: 'bg-amber-950/70 text-amber-400 border border-amber-800/70',
+  LOW: 'bg-blue-950/70 text-blue-400 border border-blue-800/70',
 };
 
 function scoreBarClass(score: number): string {
@@ -88,6 +91,59 @@ function scoreBarClass(score: number): string {
 
 function scoreStrokeColor(score: number): string {
   return score >= 75 ? '#34d399' : score >= 50 ? '#fbbf24' : '#fb7185';
+}
+
+function scoreTextClass(score: number): string {
+  return score >= 75 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-rose-400';
+}
+
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function buildReportMarkdown(data: AuditScanResult): string {
+  const lines: string[] = [];
+  lines.push(`# AI Visibility Audit — ${data.hotelName || 'Hotel Property'}`);
+  lines.push(`${data.targetUrl}`);
+  lines.push('');
+  lines.push(`**Overall AI Readability Score:** ${data.overallScore}/100`);
+  if (data.categoryScores) {
+    lines.push('');
+    lines.push('**Score Breakdown:**');
+    for (const [key, score] of Object.entries(data.categoryScores)) {
+      lines.push(`- ${key.replace(/_/g, ' ')}: ${score}/100`);
+    }
+  }
+  if (data.summary) {
+    lines.push('');
+    lines.push(`**Executive Summary:** ${data.summary}`);
+  }
+  lines.push('');
+  lines.push(`**Pages Analyzed:** ${data.pages.length}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push('## Suggestions');
+  for (const s of data.suggestions) {
+    lines.push('');
+    lines.push(`### [${s.severity}] ${s.category.replace(/_/g, ' ')}: ${s.issue}`);
+    lines.push(`**Why it matters:** ${s.impactReason}`);
+    lines.push('');
+    lines.push(`**Fix:** ${s.suggestedFix}`);
+    if (s.implementationSnippet) {
+      lines.push('');
+      lines.push('```');
+      lines.push(s.implementationSnippet);
+      lines.push('```');
+    }
+  }
+  return lines.join('\n');
 }
 
 /** Animates from 0 to target once `active` flips true — used to make scores count up on reveal instead of just appearing. */
@@ -141,6 +197,7 @@ function ScoreGauge({ score, revealed, size = 108 }: { score: number; revealed: 
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           className="gauge-ring"
+          style={{ filter: `drop-shadow(0 0 6px ${scoreStrokeColor(score)}66)` }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -171,7 +228,7 @@ function CategoryScoreBar({
         <span className="text-slate-300">{label}</span>
         <span className="font-mono text-slate-400 tabular-nums">{displayScore}/100</span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+      <div className="h-1.5 w-full rounded-full bg-slate-800/80 overflow-hidden">
         <div
           className={`h-full rounded-full transition-[width] duration-1000 ease-out ${scoreBarClass(score)}`}
           style={{ width: `${widthPct}%`, transitionDelay: `${delayMs}ms` }}
@@ -189,6 +246,10 @@ export default function Dashboard() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [recentAudits, setRecentAudits] = useState<AuditScanResult[]>([]);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
   // Drives the count-up/gauge-fill/bar-fill animations: `revealed` is derived
   // by comparing IDs rather than reset with an explicit setState call, so a
   // fresh auditResultId naturally reads as "not yet revealed" (no matching
@@ -200,9 +261,26 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!auditResultId) return;
-    const t = setTimeout(() => setRevealedForId(auditResultId), 50);
+    const t = setTimeout(() => {
+      setCollapsedIds(new Set()); // every new report starts fully expanded
+      setRevealedForId(auditResultId);
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
     return () => clearTimeout(t);
   }, [auditResultId]);
+
+  const refreshRecentAudits = () => {
+    fetch('/api/audit')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) setRecentAudits(data);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshRecentAudits();
+  }, []);
 
   // Hooks must run unconditionally on every render (not inline inside the
   // conditionally-rendered results JSX), so this is computed here even
@@ -243,6 +321,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error || 'Audit failed');
 
       setAuditData(data);
+      refreshRecentAudits();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred during analysis.';
       setErrorMsg(message);
@@ -257,6 +336,15 @@ export default function Dashboard() {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const toggleCollapsed = (id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const categories = [
@@ -308,27 +396,27 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-12 font-sans selection:bg-indigo-500 selection:text-white">
+    <main className="aurora-backdrop min-h-screen text-slate-100 p-6 md:p-12 font-sans selection:bg-indigo-500 selection:text-white">
       {/* Header */}
-      <header className="max-w-6xl mx-auto mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+      <header className="max-w-6xl mx-auto mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div>
           <div className="flex items-center gap-2">
-            <span className="bg-indigo-600 text-white font-mono text-xs px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+            <span className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-mono text-xs px-2 py-0.5 rounded font-bold uppercase tracking-wider shadow-lg shadow-indigo-900/40">
               Pilot
             </span>
-            <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-              Visaible <span className="text-indigo-400">AI Visibility Auditor</span>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+              Visaible <span className="text-gradient-animated">AI Visibility Auditor</span>
             </h1>
           </div>
-          <p className="text-slate-400 text-sm mt-1">
-            Evaluate and optimize how ChatGPT, Perplexity & Gemini extract, reason, and recommend hotel properties.
+          <p className="text-slate-400 text-sm mt-1.5 max-w-xl">
+            Evaluate and optimize how ChatGPT, Perplexity &amp; Gemini extract, reason, and recommend hotel properties.
           </p>
         </div>
       </header>
 
       {/* Input Section */}
       <section className="max-w-6xl mx-auto mb-10">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl shadow-black/20">
+        <div className="glass-panel rounded-2xl p-6 md:p-7 shadow-2xl shadow-black/30">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -344,13 +432,13 @@ export default function Dashboard() {
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 disabled={loading}
-                className="w-full bg-slate-950 border border-slate-700 text-white pl-12 pr-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow font-mono text-sm disabled:opacity-50"
+                className="w-full bg-slate-950/70 border border-white/10 text-white pl-12 pr-4 py-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow font-mono text-sm disabled:opacity-50"
               />
             </div>
             <button
               type="submit"
               disabled={loading || !urlInput.trim()}
-              className="bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white font-semibold px-6 py-3 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:active:scale-100"
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 active:scale-[0.98] text-white font-semibold px-6 py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:active:scale-100 shadow-lg shadow-indigo-900/30"
             >
               {loading ? (
                 <>
@@ -378,17 +466,49 @@ export default function Dashboard() {
                   handleStartAudit(preset.url);
                 }}
                 disabled={loading}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-700 transition-colors"
+                className="bg-white/5 hover:bg-white/10 text-slate-300 px-2.5 py-1 rounded-full border border-white/10 transition-colors"
               >
                 {preset.name}
               </button>
             ))}
           </div>
 
+          {/* Recent Audits — click to instantly reload a past report, no re-fetch needed */}
+          {recentAudits.length > 0 && !loading && (
+            <div className="mt-5 pt-4 border-t border-white/5">
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Clock className="h-3 w-3" /> Recent Audits
+              </p>
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                {recentAudits.map((scan) => (
+                  <button
+                    key={scan.id}
+                    type="button"
+                    onClick={() => {
+                      setAuditData(scan);
+                      setSelectedCategory('ALL');
+                    }}
+                    className="shrink-0 flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-left transition-colors"
+                  >
+                    <span className={`text-xs font-mono font-bold tabular-nums ${scoreTextClass(scan.overallScore)}`}>
+                      {scan.overallScore}
+                    </span>
+                    <span className="text-xs text-slate-300 max-w-[140px] truncate">
+                      {scan.hotelName || scan.targetUrl}
+                    </span>
+                    {scan.updatedAt && (
+                      <span className="text-[10px] text-slate-600 shrink-0">{timeAgo(scan.updatedAt)}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Animated Stage Loader */}
           {loading && (
             <div className="mt-6 animate-fade-in-up">
-              <div className="relative h-1 w-full overflow-hidden rounded-full bg-slate-800">
+              <div className="relative h-1 w-full overflow-hidden rounded-full bg-slate-800/80">
                 <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-gradient-to-r from-indigo-500/0 via-indigo-400 to-indigo-500/0 animate-progress-sweep" />
               </div>
 
@@ -405,7 +525,7 @@ export default function Dashboard() {
                           ? 'border-indigo-500/40 bg-indigo-950/40'
                           : isDone
                           ? 'border-emerald-800/50 bg-emerald-950/20'
-                          : 'border-slate-800 bg-slate-950/40'
+                          : 'border-white/10 bg-slate-950/40'
                       }`}
                     >
                       <div className="relative flex h-6 w-6 shrink-0 items-center justify-center">
@@ -438,7 +558,7 @@ export default function Dashboard() {
           {loading && (
             <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
               {[0, 1, 2].map((i) => (
-                <div key={i} className="h-20 rounded-xl border border-slate-800 bg-slate-900 animate-shimmer" />
+                <div key={i} className="h-20 rounded-xl border border-white/10 bg-slate-900/40 animate-shimmer" />
               ))}
             </div>
           )}
@@ -453,10 +573,10 @@ export default function Dashboard() {
 
       {/* Results View */}
       {auditData && (
-        <section className="max-w-6xl mx-auto space-y-8">
+        <section ref={resultsRef} className="max-w-6xl mx-auto space-y-8 scroll-mt-6">
           {/* Executive Scorecard */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center justify-between">
+            <div className="glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform">
               <div className="min-w-0">
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Property</p>
                 <h2 className="text-xl font-bold text-white mt-1 flex items-center gap-2">
@@ -473,7 +593,7 @@ export default function Dashboard() {
                     <span className="truncate">{auditData.targetUrl}</span> <ExternalLink className="h-3 w-3 shrink-0" />
                   </a>
                   {auditData.fromCache && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-800/70 border border-slate-700/60 px-1.5 py-0.5 rounded shrink-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded shrink-0">
                       <History className="h-2.5 w-2.5" /> cached
                     </span>
                   )}
@@ -489,7 +609,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center justify-between">
+            <div className="glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform">
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Pages Ingested</p>
                 <p className="text-3xl font-black text-white mt-1 tabular-nums">{pagesCount}</p>
@@ -499,7 +619,7 @@ export default function Dashboard() {
             </div>
 
             <div
-              className={`bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center justify-between ${
+              className={`glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform ${
                 revealed ? 'animate-glow-pulse' : ''
               }`}
             >
@@ -514,7 +634,7 @@ export default function Dashboard() {
           {/* Executive Summary */}
           {auditData.summary && (
             <div
-              className="bg-indigo-950/20 border border-indigo-500/20 rounded-xl p-5 flex items-start gap-3 animate-fade-in-up"
+              className="bg-indigo-950/20 border border-indigo-500/20 rounded-2xl p-5 flex items-start gap-3 animate-fade-in-up backdrop-blur-sm"
               style={{ animationDelay: '60ms' }}
             >
               <Sparkles className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
@@ -530,7 +650,7 @@ export default function Dashboard() {
           {/* Deterministic Category Score Breakdown */}
           {auditData.categoryScores && (
             <div
-              className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl animate-fade-in-up"
+              className="glass-panel p-4 rounded-2xl animate-fade-in-up"
               style={{ animationDelay: '75ms' }}
             >
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-2">
@@ -557,7 +677,7 @@ export default function Dashboard() {
 
           {/* Crawled Pages, grouped by type */}
           <div
-            className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl animate-fade-in-up"
+            className="glass-panel p-4 rounded-2xl animate-fade-in-up"
             style={{ animationDelay: '90ms' }}
           >
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
@@ -573,7 +693,7 @@ export default function Dashboard() {
                     {group.pages.map((p) => (
                       <span
                         key={p.id}
-                        className="bg-slate-800 text-slate-300 text-xs px-2.5 py-1 rounded border border-slate-700 flex items-center gap-1.5 font-mono"
+                        className="bg-white/5 text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 font-mono"
                         title={p.url}
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -586,27 +706,44 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Severity Breakdown + Category Filter Pills */}
-          <div className="space-y-3 pt-2 border-t border-slate-800 animate-fade-in-up" style={{ animationDelay: '120ms' }}>
-            <div className="flex flex-wrap items-center gap-2 pt-4">
-              {(['HIGH', 'MEDIUM', 'LOW'] as const).map((sev) => (
-                <span
-                  key={sev}
-                  className={`text-xs px-2.5 py-1 rounded-full font-mono font-semibold ${SEVERITY_STYLES[sev]}`}
-                >
-                  {severityCounts[sev]} {sev}
-                </span>
-              ))}
+          {/* Severity Breakdown + Category Filter Pills + Export */}
+          <div className="space-y-3 pt-2 border-t border-white/10 animate-fade-in-up" style={{ animationDelay: '120ms' }}>
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
+              <div className="flex flex-wrap items-center gap-2">
+                {(['HIGH', 'MEDIUM', 'LOW'] as const).map((sev) => (
+                  <span
+                    key={sev}
+                    className={`text-xs px-2.5 py-1 rounded-full font-mono font-semibold ${SEVERITY_STYLES[sev]}`}
+                  >
+                    {severityCounts[sev]} {sev}
+                  </span>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(buildReportMarkdown(auditData), 'full-report')}
+                className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                {copiedId === 'full-report' ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" /> Report Copied
+                  </>
+                ) : (
+                  <>
+                    <ClipboardList className="h-3.5 w-3.5" /> Copy Full Report
+                  </>
+                )}
+              </button>
             </div>
             <div className="flex flex-wrap gap-2">
               {categories.map((cat) => (
                 <button
                   key={cat.key}
                   onClick={() => setSelectedCategory(cat.key)}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                     selectedCategory === cat.key
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-slate-900 text-slate-400 hover:bg-slate-800 border border-slate-800'
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-900/30'
+                      : 'bg-white/5 text-slate-400 hover:bg-white/10 border border-white/10'
                   }`}
                 >
                   {cat.label}
@@ -618,10 +755,10 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Suggestion Cards, grouped by category */}
+          {/* Suggestion Cards, grouped by category, individually collapsible */}
           <div className="space-y-8">
             {filteredSuggestions.length === 0 ? (
-              <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-xl text-slate-500">
+              <div className="glass-panel p-8 text-center rounded-2xl text-slate-500">
                 No issues detected under this category.
               </div>
             ) : (
@@ -630,7 +767,7 @@ export default function Dashboard() {
                   {selectedCategory === 'ALL' && (
                     <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
                       {group.label}
-                      <span className="text-xs font-mono text-slate-500 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">
+                      <span className="text-xs font-mono text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
                         {group.items.length}
                       </span>
                     </h3>
@@ -643,111 +780,127 @@ export default function Dashboard() {
                         return [item.affectedUrls];
                       }
                     })();
+                    const isOpen = !collapsedIds.has(item.id);
 
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-slate-700 hover:shadow-lg hover:shadow-black/20 transition-all animate-fade-in-up"
+                        className="glass-panel rounded-2xl overflow-hidden hover:border-white/20 hover:shadow-lg hover:shadow-black/20 transition-all animate-fade-in-up"
                         style={{ animationDelay: `${Math.min(idx, 8) * 45}ms` }}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded font-mono font-bold uppercase ${SEVERITY_STYLES[item.severity]}`}
-                            >
-                              {item.severity} Severity
-                            </span>
-                            <span className="text-xs font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
-                              {item.category.replace('_', ' ')}
-                            </span>
-                          </div>
-                          <span className="text-xs font-mono text-slate-500">
-                            Confidence: {(item.confidenceScore * 100).toFixed(0)}%
-                          </span>
-                        </div>
-
-                        <h4 className="text-base font-semibold text-slate-100 flex items-start gap-2 mb-2">
-                          <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-                          {item.issue}
-                        </h4>
-
-                        <div className="space-y-3 mt-4 text-sm">
-                          {/* Impact */}
-                          <div className="bg-slate-950/60 p-3.5 rounded-lg border border-slate-800/80">
-                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                              Why this degrades AI Engine Visibility:
-                            </p>
-                            <p className="text-slate-300 leading-relaxed">{item.impactReason}</p>
-                          </div>
-
-                          {/* Suggested Fix */}
-                          <div className="bg-indigo-950/30 p-3.5 rounded-lg border border-indigo-500/20">
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">
-                                Actionable Optimization Fix:
-                              </p>
-                              <button
-                                onClick={() => copyToClipboard(item.suggestedFix, item.id)}
-                                className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono transition-colors"
+                        <button
+                          type="button"
+                          onClick={() => toggleCollapsed(item.id)}
+                          className="w-full text-left p-6 pb-0 cursor-pointer"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded font-mono font-bold uppercase ${SEVERITY_STYLES[item.severity]}`}
                               >
-                                {copiedId === item.id ? (
-                                  <>
-                                    <Check className="h-3 w-3" /> Copied
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="h-3 w-3" /> Copy Fix
-                                  </>
-                                )}
-                              </button>
+                                {item.severity} Severity
+                              </span>
+                              <span className="text-xs font-mono text-slate-400 bg-white/5 px-2 py-0.5 rounded">
+                                {item.category.replace('_', ' ')}
+                              </span>
                             </div>
-                            <pre className="text-slate-200 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1">
-                              {item.suggestedFix}
-                            </pre>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono text-slate-500">
+                                Confidence: {(item.confidenceScore * 100).toFixed(0)}%
+                              </span>
+                              <ChevronDown
+                                className={`h-4 w-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                              />
+                            </div>
                           </div>
 
-                          {/* Implementation Snippet — ready-to-paste artifact, when the fix is snippet-shaped */}
-                          {item.implementationSnippet && (
-                            <div className="bg-slate-950/60 p-3.5 rounded-lg border border-slate-800/80">
-                              <div className="flex items-center justify-between mb-1">
-                                <p className="text-xs font-semibold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
-                                  <Code2 className="h-3 w-3" /> Implementation Snippet
-                                </p>
-                                <button
-                                  onClick={() => copyToClipboard(item.implementationSnippet!, `${item.id}-snippet`)}
-                                  className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-mono transition-colors"
-                                >
-                                  {copiedId === `${item.id}-snippet` ? (
-                                    <>
-                                      <Check className="h-3 w-3" /> Copied
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="h-3 w-3" /> Copy Snippet
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                              <pre className="text-emerald-100/90 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1 overflow-x-auto">
-                                {item.implementationSnippet}
-                              </pre>
-                            </div>
-                          )}
+                          <h4 className="text-base font-semibold text-slate-100 flex items-start gap-2 mb-2 pb-6">
+                            <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                            {item.issue}
+                          </h4>
+                        </button>
 
-                          {/* Affected URLs */}
-                          {affectedUrls.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              <span className="text-xs text-slate-500">Origin:</span>
-                              {affectedUrls.map((u, i) => (
-                                <span
-                                  key={i}
-                                  className="text-xs text-slate-400 font-mono bg-slate-800 px-2 py-0.5 rounded"
-                                >
-                                  {u}
-                                </span>
-                              ))}
+                        <div className={`accordion-rows ${isOpen ? 'is-open' : ''}`}>
+                          <div className="accordion-inner">
+                            <div className="space-y-3 px-6 pb-6 text-sm">
+                              {/* Impact */}
+                              <div className="bg-slate-950/50 p-3.5 rounded-lg border border-white/5">
+                                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                                  Why this degrades AI Engine Visibility:
+                                </p>
+                                <p className="text-slate-300 leading-relaxed">{item.impactReason}</p>
+                              </div>
+
+                              {/* Suggested Fix */}
+                              <div className="bg-indigo-950/30 p-3.5 rounded-lg border border-indigo-500/20">
+                                <div className="flex items-center justify-between mb-1">
+                                  <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">
+                                    Actionable Optimization Fix:
+                                  </p>
+                                  <button
+                                    onClick={() => copyToClipboard(item.suggestedFix, item.id)}
+                                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono transition-colors"
+                                  >
+                                    {copiedId === item.id ? (
+                                      <>
+                                        <Check className="h-3 w-3" /> Copied
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="h-3 w-3" /> Copy Fix
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                                <pre className="text-slate-200 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1">
+                                  {item.suggestedFix}
+                                </pre>
+                              </div>
+
+                              {/* Implementation Snippet — ready-to-paste artifact, when the fix is snippet-shaped */}
+                              {item.implementationSnippet && (
+                                <div className="bg-slate-950/50 p-3.5 rounded-lg border border-white/5">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <p className="text-xs font-semibold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                                      <Code2 className="h-3 w-3" /> Implementation Snippet
+                                    </p>
+                                    <button
+                                      onClick={() => copyToClipboard(item.implementationSnippet!, `${item.id}-snippet`)}
+                                      className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-mono transition-colors"
+                                    >
+                                      {copiedId === `${item.id}-snippet` ? (
+                                        <>
+                                          <Check className="h-3 w-3" /> Copied
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Copy className="h-3 w-3" /> Copy Snippet
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                  <pre className="text-emerald-100/90 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1 overflow-x-auto">
+                                    {item.implementationSnippet}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {/* Affected URLs */}
+                              {affectedUrls.length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                  <span className="text-xs text-slate-500">Origin:</span>
+                                  {affectedUrls.map((u, i) => (
+                                    <span
+                                      key={i}
+                                      className="text-xs text-slate-400 font-mono bg-white/5 px-2 py-0.5 rounded"
+                                    >
+                                      {u}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </div>
                       </div>
                     );

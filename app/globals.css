@@ -125,3 +125,61 @@ body {
 .gauge-ring {
   transition: stroke-dashoffset 1.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* Layered page backdrop: soft aurora glows + a faint grid for texture,
+   replacing a flat solid dark background. */
+.aurora-backdrop {
+  background-color: #020617;
+  background-image:
+    radial-gradient(ellipse 55% 40% at 15% -5%, rgba(99, 102, 241, 0.16), transparent 60%),
+    radial-gradient(ellipse 45% 35% at 90% 10%, rgba(168, 85, 247, 0.1), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(16, 185, 129, 0.05), transparent 60%),
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: auto, auto, auto, 42px 42px, 42px 42px;
+  background-attachment: fixed, fixed, fixed, fixed, fixed;
+}
+
+/* Frosted-glass card treatment used throughout in place of flat solid panels. */
+.glass-panel {
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Accordion expand/collapse via the grid-template-rows trick — animates to
+   auto height without JS measuring the content, and degrades gracefully
+   (no animation, just show/hide) if grid-template-rows transitions aren't supported. */
+.accordion-rows {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.accordion-rows.is-open {
+  grid-template-rows: 1fr;
+}
+
+.accordion-rows > .accordion-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@keyframes gradient-pan {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.text-gradient-animated {
+  background-image: linear-gradient(90deg, #a5b4fc, #f0abfc, #a5b4fc);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradient-pan 6s linear infinite;
+}
