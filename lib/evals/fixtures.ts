@@ -19,6 +19,7 @@ function page(overrides: Partial<ExtractedPageData> & { url: string }): Extracte
     markdown: 'Some hotel content.',
     schemaJsonLd: [],
     signals: signals(),
+    cms: 'unknown',
     ...overrides,
   };
 }

@@ -20,6 +20,7 @@ import {
   ListChecks,
   History,
   RefreshCw,
+  Code2,
 } from 'lucide-react';
 
 interface Suggestion {
@@ -29,6 +30,7 @@ interface Suggestion {
   issue: string;
   impactReason: string;
   suggestedFix: string;
+  implementationSnippet?: string | null;
   affectedUrls: string;
   currentSnippet?: string | null;
   confidenceScore: number;
@@ -703,6 +705,34 @@ export default function Dashboard() {
                               {item.suggestedFix}
                             </pre>
                           </div>
+
+                          {/* Implementation Snippet — ready-to-paste artifact, when the fix is snippet-shaped */}
+                          {item.implementationSnippet && (
+                            <div className="bg-slate-950/60 p-3.5 rounded-lg border border-slate-800/80">
+                              <div className="flex items-center justify-between mb-1">
+                                <p className="text-xs font-semibold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Code2 className="h-3 w-3" /> Implementation Snippet
+                                </p>
+                                <button
+                                  onClick={() => copyToClipboard(item.implementationSnippet!, `${item.id}-snippet`)}
+                                  className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-mono transition-colors"
+                                >
+                                  {copiedId === `${item.id}-snippet` ? (
+                                    <>
+                                      <Check className="h-3 w-3" /> Copied
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="h-3 w-3" /> Copy Snippet
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                              <pre className="text-emerald-100/90 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1 overflow-x-auto">
+                                {item.implementationSnippet}
+                              </pre>
+                            </div>
+                          )}
 
                           {/* Affected URLs */}
                           {affectedUrls.length > 0 && (

@@ -167,6 +167,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
           issue: item.issue,
           impactReason: item.impactReason,
           suggestedFix: item.suggestedFix,
+          implementationSnippet: item.implementationSnippet || null,
           affectedUrls: JSON.stringify(item.affectedUrls),
           currentSnippet: item.currentSnippet || null,
           confidenceScore: item.confidenceScore,

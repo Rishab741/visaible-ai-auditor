@@ -12,12 +12,23 @@ export interface PageStructuralSignals {
   longestBlockWords: number;
 }
 
+export type DetectedCms = 'wordpress' | 'unknown';
+
 export interface ExtractedPageData {
   url: string;
   title: string;
   markdown: string;
   schemaJsonLd: unknown[];
   signals: PageStructuralSignals;
+  cms: DetectedCms;
+}
+
+/** Cheap, static-HTML-only CMS fingerprint — good enough to steer "how would I actually apply this fix" without any authenticated access. */
+function detectCms(html: string): DetectedCms {
+  if (/wp-content\/|wp-includes\/|wp-json\/|name=["']generator["']\s+content=["']WordPress/i.test(html)) {
+    return 'wordpress';
+  }
+  return 'unknown';
 }
 
 const UA_HEADERS = {
@@ -114,6 +125,7 @@ export async function crawlHotelPage(targetUrl: string): Promise<ExtractedPageDa
           markdown: data.data.markdown || '',
           schemaJsonLd: extractJsonLd($),
           signals: extractStructuralSignals($),
+          cms: detectCms(data.data.html || ''),
         };
       }
     } catch (error) {
@@ -146,5 +158,6 @@ export async function crawlHotelPage(targetUrl: string): Promise<ExtractedPageDa
     markdown: bodyText,
     schemaJsonLd,
     signals,
+    cms: detectCms(html),
   };
 }

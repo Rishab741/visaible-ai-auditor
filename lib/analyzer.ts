@@ -16,10 +16,14 @@ const CategoryEnum = z.enum([
 // Write-ups for the deterministic findings handed to the model — the model
 // only supplies prose here. Category, severity, affectedUrls, and whether the
 // finding exists at all are fixed by lib/signals.ts and never overridden.
+const IMPLEMENTATION_SNIPPET_DESCRIPTION =
+  'A ready-to-paste implementation artifact for the detected CMS (e.g. a complete JSON-LD <script type="application/ld+json"> block for schema fixes, or an HTML snippet for a WordPress Custom HTML block). Omit entirely if the fix is not the kind of thing that reduces to a pasteable snippet (e.g. "add a dedicated policies page").';
+
 const HardFindingWriteupSchema = z.object({
   issue: z.string().describe('Precise description of the verified issue, referencing the given fact'),
   impactReason: z.string().describe('Why this reduces AI engine (ChatGPT, Perplexity, Gemini) extractability, confidence, or recommendation likelihood'),
   suggestedFix: z.string().describe('Clear, actionable change or structured schema snippet to resolve the issue'),
+  implementationSnippet: z.string().optional().describe(IMPLEMENTATION_SNIPPET_DESCRIPTION),
 });
 
 const AdditionalSuggestionSchema = z.object({
@@ -28,6 +32,7 @@ const AdditionalSuggestionSchema = z.object({
   issue: z.string().describe('Precise description of a qualitative issue not covered by the deterministic findings (e.g. marketing fluff, mixed-intent pages)'),
   impactReason: z.string().describe('Why this reduces AI engine extractability, confidence, or recommendation likelihood'),
   suggestedFix: z.string().describe('Clear, actionable change to resolve the issue'),
+  implementationSnippet: z.string().optional().describe(IMPLEMENTATION_SNIPPET_DESCRIPTION),
   affectedUrls: z.array(z.string()).describe('Crawled URLs where this issue occurs'),
   currentSnippet: z.string().optional().describe('Direct quote of the problematic text from the site if applicable'),
   confidenceScore: z.number().min(0).max(1).describe('Model confidence score between 0 and 1'),
@@ -57,6 +62,7 @@ export interface SuggestionItem {
   issue: string;
   impactReason: string;
   suggestedFix: string;
+  implementationSnippet?: string;
   affectedUrls: string[];
   currentSnippet?: string;
   confidenceScore: number;
@@ -96,15 +102,22 @@ export async function analyzeHotelWebsite(
     markdownExcerpt: page.markdown.slice(0, 7500), // Protect token boundaries per subpage
   }));
 
+  // A single WordPress-fingerprinted page is a strong enough signal to treat
+  // the whole site as WordPress for snippet-formatting purposes.
+  const detectedCms = pages.some((p) => p.cms === 'wordpress') ? 'wordpress' : 'unknown';
+
   const systemPrompt = `
 You are an expert AI Visibility and GEO (Generative Engine Optimization) Engineer for Visaible.
 Your mission is to audit hotel websites for AI Answer Engine readability (ChatGPT, Perplexity, Google Gemini, Apple Intelligence).
 
 A deterministic rules engine has already scored this site and identified a fixed list of verified findings — schema gaps, missing page categories, structural issues, and cross-page factual conflicts. These are facts, not opinions: do not contradict, soften, or embellish them.
 
+The site's CMS was detected as: ${detectedCms}.
+
 Your job:
 1. For EACH deterministic finding listed below, write a precise "issue" description, "impactReason" (why it hurts AI extractability/trust), and "suggestedFix" (specific, actionable — name the exact Schema.org type/property if relevant). Output exactly one write-up per finding, in the same order.
 2. Separately, scan the crawled content for genuinely qualitative issues the rules engine cannot detect: marketing fluff without factual anchors ("luxurious oasis" with no pool dimensions/times/configs), pages mixing multiple intents, vague experiential language, unstated policies. Only add these as "additionalSuggestions" — do not repeat anything already covered by a deterministic finding.
+3. For findings where the fix reduces to a pasteable code artifact (structured data, a specific HTML block), ALSO provide "implementationSnippet": a complete, ready-to-use snippet. If the detected CMS is "wordpress", frame it as something that pastes directly into a WordPress Custom HTML block or the theme's custom-field JSON-LD area. If "unknown", provide plain HTML. Omit implementationSnippet entirely for fixes that aren't snippet-shaped (e.g. "create a new page").
 
 Guidelines:
 - Suggestions MUST be specific and reference actual facts from the provided text — never generic ("add more schema" is not acceptable; name the exact type/property).
@@ -142,6 +155,7 @@ ${JSON.stringify(preparedPages, null, 2)}
       issue: writeup.issue,
       impactReason: writeup.impactReason,
       suggestedFix: writeup.suggestedFix,
+      implementationSnippet: writeup.implementationSnippet || undefined,
       affectedUrls: finding.affectedUrls,
       confidenceScore: 1, // deterministically verified, not model-estimated
     };
@@ -149,6 +163,7 @@ ${JSON.stringify(preparedPages, null, 2)}
 
   const additionalSuggestions: SuggestionItem[] = object.additionalSuggestions.map((s) => ({
     ...s,
+    implementationSnippet: s.implementationSnippet || undefined,
     currentSnippet: s.currentSnippet || undefined,
   }));
 

@@ -42,6 +42,7 @@ model OptimizationSuggestion {
   issue           String
   impactReason    String     // Why AI search/recommendation engines struggle with this
   suggestedFix    String     // Actionable fix / structured example
+  implementationSnippet String? // Ready-to-paste artifact for the detected CMS (see lib/crawler.ts DetectedCms), when the fix is snippet-shaped
   affectedUrls    String     // Comma-separated or JSON array string
   currentSnippet  String?    // Problematic text snippet if available
   confidenceScore Float      @default(0.9)
