@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Globe,
   Sparkles,
@@ -18,6 +18,8 @@ import {
   ScanSearch,
   BrainCircuit,
   ListChecks,
+  History,
+  RefreshCw,
 } from 'lucide-react';
 
 interface Suggestion {
@@ -49,6 +51,8 @@ interface AuditScanResult {
   status: string;
   pages: ScannedPage[];
   suggestions: Suggestion[];
+  updatedAt?: string;
+  fromCache?: boolean;
 }
 
 const LOADING_STAGES = [
@@ -76,6 +80,105 @@ const SEVERITY_STYLES: Record<Suggestion['severity'], string> = {
   LOW: 'bg-blue-950 text-blue-400 border border-blue-800',
 };
 
+function scoreBarClass(score: number): string {
+  return score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-rose-500';
+}
+
+function scoreStrokeColor(score: number): string {
+  return score >= 75 ? '#34d399' : score >= 50 ? '#fbbf24' : '#fb7185';
+}
+
+/** Animates from 0 to target once `active` flips true — used to make scores count up on reveal instead of just appearing. */
+function useCountUp(target: number, active: boolean, durationMs = 1200): number {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    if (!active) return; // don't animate; the value just isn't shown while inactive (see return below)
+    let raf: number;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min((now - start) / durationMs, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(Math.round(target * eased));
+      if (progress < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, active, durationMs]);
+
+  return active ? value : 0;
+}
+
+function ScoreGauge({ score, revealed, size = 108 }: { score: number; revealed: boolean; size?: number }) {
+  const displayScore = useCountUp(score, revealed, 1400);
+  const strokeWidth = 9;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = revealed ? score : 0;
+  const offset = circumference - (progress / 100) * circumference;
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          strokeWidth={strokeWidth}
+          className="stroke-slate-800"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={scoreStrokeColor(score)}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          className="gauge-ring"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-black text-white tabular-nums">{displayScore}</span>
+        <span className="text-[10px] text-slate-500 -mt-0.5">/ 100</span>
+      </div>
+    </div>
+  );
+}
+
+function CategoryScoreBar({
+  label,
+  score,
+  revealed,
+  delayMs,
+}: {
+  label: string;
+  score: number;
+  revealed: boolean;
+  delayMs: number;
+}) {
+  const displayScore = useCountUp(score, revealed, 1000);
+  const widthPct = revealed ? score : 0;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-slate-300">{label}</span>
+        <span className="font-mono text-slate-400 tabular-nums">{displayScore}/100</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-[width] duration-1000 ease-out ${scoreBarClass(score)}`}
+          style={{ width: `${widthPct}%`, transitionDelay: `${delayMs}ms` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [urlInput, setUrlInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -84,6 +187,25 @@ export default function Dashboard() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Drives the count-up/gauge-fill/bar-fill animations: `revealed` is derived
+  // by comparing IDs rather than reset with an explicit setState call, so a
+  // fresh auditResultId naturally reads as "not yet revealed" (no matching
+  // revealedForId) until the timeout below catches it up — the only setState
+  // call happens inside that async callback, not synchronously in the effect.
+  const [revealedForId, setRevealedForId] = useState<string | null>(null);
+  const auditResultId = auditData?.id ?? null;
+  const revealed = auditResultId !== null && revealedForId === auditResultId;
+
+  useEffect(() => {
+    if (!auditResultId) return;
+    const t = setTimeout(() => setRevealedForId(auditResultId), 50);
+    return () => clearTimeout(t);
+  }, [auditResultId]);
+
+  // Hooks must run unconditionally on every render (not inline inside the
+  // conditionally-rendered results JSX), so this is computed here even
+  // though it's only displayed once auditData exists.
+  const pagesCount = useCountUp(auditData?.pages.length ?? 0, revealed, 900);
 
   const presets = [
     { name: 'The Fullerton Hotel Sydney', url: 'https://www.fullertonhotels.com/fullerton-hotel-sydney' },
@@ -91,7 +213,7 @@ export default function Dashboard() {
     { name: 'Crown Towers Sydney', url: 'https://www.crownhotels.com.au/sydney/crown-towers' },
   ];
 
-  const handleStartAudit = async (targetUrl: string) => {
+  const handleStartAudit = async (targetUrl: string, forceRefresh = false) => {
     if (!targetUrl) return;
     setLoading(true);
     setErrorMsg(null);
@@ -112,7 +234,7 @@ export default function Dashboard() {
       const res = await fetch('/api/audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: targetUrl }),
+        body: JSON.stringify({ url: targetUrl, forceRefresh }),
       });
 
       const data = await res.json();
@@ -204,7 +326,7 @@ export default function Dashboard() {
 
       {/* Input Section */}
       <section className="max-w-6xl mx-auto mb-10">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl shadow-black/20">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -220,13 +342,13 @@ export default function Dashboard() {
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 disabled={loading}
-                className="w-full bg-slate-950 border border-slate-700 text-white pl-12 pr-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm disabled:opacity-50"
+                className="w-full bg-slate-950 border border-slate-700 text-white pl-12 pr-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow font-mono text-sm disabled:opacity-50"
               />
             </div>
             <button
               type="submit"
               disabled={loading || !urlInput.trim()}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-6 py-3 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className="bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white font-semibold px-6 py-3 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:active:scale-100"
             >
               {loading ? (
                 <>
@@ -254,7 +376,7 @@ export default function Dashboard() {
                   handleStartAudit(preset.url);
                 }}
                 disabled={loading}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-700 transition"
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-700 transition-colors"
               >
                 {preset.name}
               </button>
@@ -333,49 +455,57 @@ export default function Dashboard() {
           {/* Executive Scorecard */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center justify-between">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Property</p>
                 <h2 className="text-xl font-bold text-white mt-1 flex items-center gap-2">
-                  <Building2 className="h-5 w-5 text-indigo-400" />
-                  {auditData.hotelName || 'Hotel Property'}
+                  <Building2 className="h-5 w-5 text-indigo-400 shrink-0" />
+                  <span className="truncate">{auditData.hotelName || 'Hotel Property'}</span>
                 </h2>
-                <a
-                  href={auditData.targetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-slate-500 hover:text-slate-400 mt-1 inline-flex items-center gap-1"
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <a
+                    href={auditData.targetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-slate-500 hover:text-slate-400 inline-flex items-center gap-1 truncate transition-colors"
+                  >
+                    <span className="truncate">{auditData.targetUrl}</span> <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                  {auditData.fromCache && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-800/70 border border-slate-700/60 px-1.5 py-0.5 rounded shrink-0">
+                      <History className="h-2.5 w-2.5" /> cached
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleStartAudit(auditData.targetUrl, true)}
+                  disabled={loading}
+                  className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium disabled:opacity-50 transition-colors"
                 >
-                  {auditData.targetUrl} <ExternalLink className="h-3 w-3" />
-                </a>
+                  <RefreshCw className="h-3 w-3" /> Run fresh audit
+                </button>
               </div>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Pages Ingested</p>
-                <p className="text-3xl font-black text-white mt-1">{auditData.pages.length}</p>
+                <p className="text-3xl font-black text-white mt-1 tabular-nums">{pagesCount}</p>
                 <p className="text-xs text-slate-500 mt-1">Multi-page fact extraction</p>
               </div>
               <Layers className="h-8 w-8 text-slate-700" />
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center justify-between">
+            <div
+              className={`bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center justify-between ${
+                revealed ? 'animate-glow-pulse' : ''
+              }`}
+            >
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">AI Readability Score</p>
-                <p
-                  className={`text-3xl font-black mt-1 ${
-                    auditData.overallScore >= 75
-                      ? 'text-emerald-400'
-                      : auditData.overallScore >= 50
-                      ? 'text-amber-400'
-                      : 'text-rose-400'
-                  }`}
-                >
-                  {auditData.overallScore}/100
-                </p>
-                <p className="text-xs text-slate-500 mt-1">LLM Extractability & Trust</p>
+                <p className="text-xs text-slate-500 mt-1">Deterministically computed</p>
               </div>
-              <ShieldCheck className="h-8 w-8 text-indigo-500/40" />
+              <ScoreGauge score={auditData.overallScore} revealed={revealed} />
             </div>
           </div>
 
@@ -410,25 +540,15 @@ export default function Dashboard() {
               <div className="space-y-3">
                 {categories
                   .filter((c) => c.key !== 'ALL')
-                  .map((cat) => {
-                    const score = auditData.categoryScores?.[cat.key] ?? 0;
-                    return (
-                      <div key={cat.key}>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="text-slate-300">{cat.label}</span>
-                          <span className="font-mono text-slate-400">{score}/100</span>
-                        </div>
-                        <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-rose-500'
-                            }`}
-                            style={{ width: `${score}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                  .map((cat, idx) => (
+                    <CategoryScoreBar
+                      key={cat.key}
+                      label={cat.label}
+                      score={auditData.categoryScores?.[cat.key] ?? 0}
+                      revealed={revealed}
+                      delayMs={idx * 90}
+                    />
+                  ))}
               </div>
             </div>
           )}
@@ -481,7 +601,7 @@ export default function Dashboard() {
                 <button
                   key={cat.key}
                   onClick={() => setSelectedCategory(cat.key)}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     selectedCategory === cat.key
                       ? 'bg-indigo-600 text-white'
                       : 'bg-slate-900 text-slate-400 hover:bg-slate-800 border border-slate-800'
@@ -525,7 +645,7 @@ export default function Dashboard() {
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-slate-700 transition-colors animate-fade-in-up"
+                        className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-slate-700 hover:shadow-lg hover:shadow-black/20 transition-all animate-fade-in-up"
                         style={{ animationDelay: `${Math.min(idx, 8) * 45}ms` }}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -566,7 +686,7 @@ export default function Dashboard() {
                               </p>
                               <button
                                 onClick={() => copyToClipboard(item.suggestedFix, item.id)}
-                                className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono"
+                                className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono transition-colors"
                               >
                                 {copiedId === item.id ? (
                                   <>

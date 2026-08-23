@@ -4,6 +4,7 @@ import { investigateGaps } from './investigator';
 import { analyzeHotelWebsite } from './analyzer';
 import { resolveHotelWebsite } from './resolver';
 import { prisma } from './prisma';
+import { PIPELINE_VERSION } from './version';
 
 const CRAWL_CONCURRENCY = 5;
 // How long a completed scan stays valid as a cached result for the same target
@@ -34,7 +35,7 @@ function classifyPageType(url: string, targetUrl: string): string {
 /**
  * Discovers subpages and executes a full AI visibility scan.
  */
-export async function runAuditScan(rootQuery: string) {
+export async function runAuditScan(rootQuery: string, options: { forceRefresh?: boolean } = {}) {
   const trimmedInput = rootQuery.trim();
 
   // Accept either a direct URL/domain, or a free-text hotel name/description —
@@ -49,17 +50,20 @@ export async function runAuditScan(rootQuery: string) {
   // vs. the resolved URL with/without a trailing slash) converge on one cache key.
   const targetUrl = normalizeUrl(resolvedUrl);
 
-  const cachedScan = await prisma.auditScan.findFirst({
-    where: {
-      targetUrl,
-      status: 'COMPLETED',
-      updatedAt: { gte: new Date(Date.now() - CACHE_TTL_MS) },
-    },
-    orderBy: { updatedAt: 'desc' },
-    include: { pages: true, suggestions: true },
-  });
-  if (cachedScan) {
-    return cachedScan;
+  if (!options.forceRefresh) {
+    const cachedScan = await prisma.auditScan.findFirst({
+      where: {
+        targetUrl,
+        status: 'COMPLETED',
+        pipelineVersion: PIPELINE_VERSION, // scans from older scoring logic never match, so they age out automatically
+        updatedAt: { gte: new Date(Date.now() - CACHE_TTL_MS) },
+      },
+      orderBy: { updatedAt: 'desc' },
+      include: { pages: true, suggestions: true },
+    });
+    if (cachedScan) {
+      return { ...cachedScan, fromCache: true };
+    }
   }
 
   // 1. Create Initial Scan Record in SQLite
@@ -67,6 +71,7 @@ export async function runAuditScan(rootQuery: string) {
     data: {
       targetUrl,
       status: 'CRAWLING',
+      pipelineVersion: PIPELINE_VERSION,
     },
   });
 
@@ -185,7 +190,7 @@ export async function runAuditScan(rootQuery: string) {
       },
     });
 
-    return completedScan;
+    return { ...completedScan, fromCache: false };
   } catch (error) {
     await prisma.auditScan.update({
       where: { id: scan.id },
