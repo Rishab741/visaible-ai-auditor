@@ -26,6 +26,10 @@ function page(overrides: Partial<ExtractedPageData> & { url: string }): Extracte
 const HOTEL_SCHEMA = { '@context': 'https://schema.org', '@type': 'Hotel', name: 'Fixture Hotel', telephone: '+1-555-0100' };
 const ROOM_SCHEMA = { '@context': 'https://schema.org', '@type': 'Room', name: 'Deluxe Room' };
 const FAQ_SCHEMA = { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: [] };
+// Real-world regression case: a villa page tagged @type: ["HotelSuite", "Product"]
+// was wrongly flagged as missing room schema before HotelSuite was added to
+// ROOM_SCHEMA_TYPES — see lib/evals/signals.eval.ts.
+const HOTEL_SUITE_SCHEMA = { '@context': 'https://schema.org', '@type': ['HotelSuite', 'Product'], name: 'Fixture Suite' };
 
 /** A well-built site: full schema, all page types present, clean structure, consistent facts. */
 export const GOOD_SITE: { pages: ExtractedPageData[]; pageTypes: Map<string, string> } = {
@@ -78,6 +82,18 @@ export const CONFLICTING_FACTS_SITE: { pages: ExtractedPageData[]; pageTypes: Ma
   pageTypes: new Map([
     ['https://conflict.example.com/', 'HOMEPAGE'],
     ['https://conflict.example.com/rooms', 'ROOMS'],
+  ]),
+};
+
+/** A room page using @type: ["HotelSuite", "Product"] instead of Room/HotelRoom — must still count as room schema. */
+export const HOTEL_SUITE_SITE: { pages: ExtractedPageData[]; pageTypes: Map<string, string> } = {
+  pages: [
+    page({ url: 'https://suite.example.com/', schemaJsonLd: [HOTEL_SCHEMA] }),
+    page({ url: 'https://suite.example.com/rooms', schemaJsonLd: [HOTEL_SUITE_SCHEMA] }),
+  ],
+  pageTypes: new Map([
+    ['https://suite.example.com/', 'HOMEPAGE'],
+    ['https://suite.example.com/rooms', 'ROOMS'],
   ]),
 };
 

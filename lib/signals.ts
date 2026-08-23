@@ -35,8 +35,12 @@ const CATEGORY_WEIGHTS: CategoryScores = {
   STRUCTURAL_SIGNALS: 0.15,
 };
 
-const HOTEL_SCHEMA_TYPES = ['hotel', 'lodgingbusiness', 'resort'];
-const ROOM_SCHEMA_TYPES = ['room', 'hotelroom'];
+// Schema.org's Accommodation/LodgingBusiness vocabulary is broader than it
+// first looks — a real audit hit this: a villa page tagged "HotelSuite" was
+// wrongly flagged as missing room schema because that type wasn't in this
+// list. Cover the realistic set rather than just the two most obvious names.
+const HOTEL_SCHEMA_TYPES = ['hotel', 'lodgingbusiness', 'resort', 'motel', 'bedandbreakfast', 'hostel'];
+const ROOM_SCHEMA_TYPES = ['room', 'hotelroom', 'suite', 'hotelsuite', 'apartment', 'accommodation'];
 const FAQ_SCHEMA_TYPES = ['faqpage'];
 
 const EXPECTED_PAGE_TYPES = ['ROOMS', 'AMENITIES', 'DINING', 'LOCATION', 'POLICIES'];

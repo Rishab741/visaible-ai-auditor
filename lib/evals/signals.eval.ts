@@ -1,6 +1,6 @@
 import { computeSiteSignals, Category, CategoryScores } from '../signals';
 import { EvalCase, assert, assertInRange } from './framework';
-import { GOOD_SITE, BARE_SITE, CONFLICTING_FACTS_SITE, WALL_OF_TEXT_SITE } from './fixtures';
+import { GOOD_SITE, BARE_SITE, CONFLICTING_FACTS_SITE, WALL_OF_TEXT_SITE, HOTEL_SUITE_SITE } from './fixtures';
 
 const ALL_CATEGORIES: Category[] = [
   'CONTENT_CLARITY',
@@ -31,10 +31,24 @@ export const signalsEvalCases: EvalCase[] = [
     name: 'signals: all scores stay within [0, 100] across every fixture',
     tier: 'fast',
     run: () => {
-      for (const fixture of [GOOD_SITE, BARE_SITE, CONFLICTING_FACTS_SITE, WALL_OF_TEXT_SITE]) {
+      for (const fixture of [GOOD_SITE, BARE_SITE, CONFLICTING_FACTS_SITE, WALL_OF_TEXT_SITE, HOTEL_SUITE_SITE]) {
         const { categoryScores, overallScore } = computeSiteSignals(fixture.pages, fixture.pageTypes);
         assertValidScores(categoryScores, overallScore);
       }
+    },
+  },
+  {
+    // Real-world regression: a villa page tagged @type: ["HotelSuite", "Product"]
+    // was wrongly flagged as missing room schema until HotelSuite (and Suite,
+    // Apartment, Accommodation) were added to ROOM_SCHEMA_TYPES.
+    name: 'signals: HotelSuite schema type counts as room schema, not a gap',
+    tier: 'fast',
+    run: () => {
+      const { hardFindings } = computeSiteSignals(HOTEL_SUITE_SITE.pages, HOTEL_SUITE_SITE.pageTypes);
+      const falseGap = hardFindings.find(
+        (f) => f.category === 'STRUCTURED_DATA' && f.fact.includes('missing Room/HotelRoom')
+      );
+      assert(!falseGap, `HotelSuite-typed room page was wrongly flagged as missing schema: ${JSON.stringify(falseGap)}`);
     },
   },
   {
