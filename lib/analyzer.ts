@@ -76,6 +76,10 @@ export interface AnalysisReport {
   suggestions: SuggestionItem[];
 }
 
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 /**
  * Analyzes multiple crawled hotel pages to identify issues degrading AI engine visibility.
  *
@@ -153,10 +157,35 @@ ${JSON.stringify(preparedPages, null, 2)}
     };
   });
 
-  const additionalSuggestions: SuggestionItem[] = object.additionalSuggestions.map((s) => ({
-    ...s,
-    currentSnippet: s.currentSnippet || undefined,
-  }));
+  // Grounding check on the model-authored suggestions: hard findings are
+  // exempt (their affectedUrls/facts come from lib/signals.ts, not the
+  // model), but additionalSuggestions are the model's own claims about what
+  // it saw. A hallucinated affectedUrl or an invented "direct quote" both
+  // fail silently otherwise — verify both against the actual crawl instead
+  // of trusting the model's self-report.
+  const crawledUrls = new Set(pages.map((p) => p.url));
+  const pageMarkdownByUrl = new Map(pages.map((p) => [p.url, normalizeForMatch(p.markdown)]));
+
+  const additionalSuggestions: SuggestionItem[] = [];
+  for (const s of object.additionalSuggestions) {
+    const groundedUrls = s.affectedUrls.filter((u) => crawledUrls.has(u));
+    if (groundedUrls.length === 0) {
+      console.warn(`Dropping AI suggestion citing no actually-crawled URL: "${s.issue}"`);
+      continue;
+    }
+
+    let currentSnippet = s.currentSnippet || undefined;
+    if (currentSnippet) {
+      const normalizedQuote = normalizeForMatch(currentSnippet);
+      const isQuoteGrounded = groundedUrls.some((u) => pageMarkdownByUrl.get(u)?.includes(normalizedQuote));
+      if (!isQuoteGrounded) {
+        console.warn(`Dropping ungrounded "direct quote" for suggestion: "${s.issue}"`);
+        currentSnippet = undefined;
+      }
+    }
+
+    additionalSuggestions.push({ ...s, affectedUrls: groundedUrls, currentSnippet });
+  }
 
   return {
     hotelName: object.hotelName,

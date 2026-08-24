@@ -392,7 +392,10 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-indigo-400" /> Score Breakdown
             </h3>
-            <p className="text-[11px] text-slate-500 mb-4">Computed deterministically — not model-generated, so re-running an audit reproduces the same scores.</p>
+            <p className="text-[11px] text-slate-500 mb-4">
+              Computed deterministically — not model-generated, so re-running an audit reproduces the same scores. Suggestions below are a hybrid: rule-verified findings plus AI reasoning for
+              qualitative issues no rule can catch, with every AI-cited quote and URL checked against the actual crawl before it&apos;s shown.
+            </p>
             <div className="space-y-3">
               {CATEGORIES.filter((c) => c.key !== 'ALL').map((cat, idx) => (
                 <CategoryScoreBar key={cat.key} label={cat.label} score={data.categoryScores?.[cat.key] ?? 0} revealed={revealed} delayMs={idx * 90} />

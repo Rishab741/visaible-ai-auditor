@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, Copy, Check, Code2, MinusCircle } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Copy, Check, Code2, MinusCircle, ShieldCheck, Sparkles } from 'lucide-react';
 import type { Suggestion } from './AuditReport';
 
 const SEVERITY_STYLES: Record<Suggestion['severity'], string> = {
@@ -63,6 +63,21 @@ export default function SuggestionCard({
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-xs px-2 py-0.5 rounded font-mono font-bold uppercase ${SEVERITY_STYLES[item.severity]}`}>{item.severity}</span>
             <span className="text-xs font-mono text-slate-400 bg-white/5 px-2 py-0.5 rounded">{item.category.replace('_', ' ')}</span>
+            {item.confidenceScore === 1 ? (
+              <span
+                title="Verified directly from crawled schema/content by code — not a model judgment"
+                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-sky-950/70 text-sky-400 border border-sky-800/70 flex items-center gap-1"
+              >
+                <ShieldCheck className="h-2.5 w-2.5" /> Verified
+              </span>
+            ) : (
+              <span
+                title="Identified by AI reasoning across the crawled content, grounded and quote-checked against the crawl"
+                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-purple-950/70 text-purple-400 border border-purple-800/70 flex items-center gap-1"
+              >
+                <Sparkles className="h-2.5 w-2.5" /> AI Assessed
+              </span>
+            )}
             {item.implementationSnippet && (
               <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-emerald-950/70 text-emerald-400 border border-emerald-800/70 flex items-center gap-1">
                 <Code2 className="h-2.5 w-2.5" /> Fix Ready
