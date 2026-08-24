@@ -18,11 +18,12 @@ import {
   ChevronDown,
   ClipboardList,
   Wand2,
-  Loader2,
   ArrowLeft,
   LayoutDashboard,
   MinusCircle,
+  Bot,
 } from 'lucide-react';
+import AgentFixModal, { AGENT_NAME, type AgentFixResult } from './AgentFixModal';
 
 export interface Suggestion {
   id: string;
@@ -214,9 +215,9 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
   const resultsRef = useRef<HTMLDivElement>(null);
 
   // The one main "act on this" action for the whole report, instead of a
-  // per-card trigger — generates every applicable snippet in one go.
-  const [bulkGenerating, setBulkGenerating] = useState(false);
-  const [bulkError, setBulkError] = useState<string | null>(null);
+  // per-card trigger — generates every applicable snippet in one go, run by
+  // Arthur (AgentFixModal) rather than an inline spinner on the button.
+  const [showAgentModal, setShowAgentModal] = useState(false);
   const [notApplicableIds, setNotApplicableIds] = useState<Set<string>>(new Set());
 
   // AuditReport only ever mounts fresh for a given scan (each /audit/[id]
@@ -246,37 +247,27 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
     });
   };
 
-  const pendingCount = suggestions.filter((s) => !s.implementationSnippet && !notApplicableIds.has(s.id)).length;
+  const pendingTargets = suggestions
+    .filter((s) => !s.implementationSnippet && !notApplicableIds.has(s.id))
+    .map((s) => ({ id: s.id, issue: s.issue }));
+  const pendingCount = pendingTargets.length;
 
-  const handleBulkGenerate = async () => {
-    setBulkGenerating(true);
-    setBulkError(null);
-    try {
-      const res = await fetch(`/api/audit/${data.id}/snippets`, { method: 'POST' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to generate implementation fixes');
+  const handleAgentComplete = (results: AgentFixResult[]) => {
+    const resultsById = new Map(results.map((r) => [r.id, r]));
 
-      const results = json.results as Array<{ id: string; implementationSnippet?: string; notApplicable?: boolean }>;
-      const resultsById = new Map(results.map((r) => [r.id, r]));
-
-      setSuggestions((prev) =>
-        prev.map((s) => {
-          const result = resultsById.get(s.id);
-          return result?.implementationSnippet ? { ...s, implementationSnippet: result.implementationSnippet } : s;
-        })
-      );
-      setNotApplicableIds((prev) => {
-        const next = new Set(prev);
-        for (const r of results) {
-          if (r.notApplicable) next.add(r.id);
-        }
-        return next;
-      });
-    } catch (err) {
-      setBulkError(err instanceof Error ? err.message : 'Failed to generate implementation fixes');
-    } finally {
-      setBulkGenerating(false);
-    }
+    setSuggestions((prev) =>
+      prev.map((s) => {
+        const result = resultsById.get(s.id);
+        return result?.implementationSnippet ? { ...s, implementationSnippet: result.implementationSnippet } : s;
+      })
+    );
+    setNotApplicableIds((prev) => {
+      const next = new Set(prev);
+      for (const r of results) {
+        if (r.notApplicable) next.add(r.id);
+      }
+      return next;
+    });
   };
 
   const categoryCounts: Record<string, number> = {};
@@ -437,26 +428,22 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-900/30">
-              <Wand2 className="h-5 w-5 text-white" />
+              <Bot className="h-5 w-5 text-white" />
             </div>
             <div>
               <h3 className="text-sm font-semibold text-white">Generate Implementation Fixes</h3>
               <p className="text-xs text-slate-400 mt-0.5 max-w-md">
-                Turn every applicable suggestion into a ready-to-paste code snippet, grounded in the actual crawled content — one action for the whole report.
+                {AGENT_NAME}, your implementation agent, turns every applicable suggestion into a ready-to-paste code snippet, grounded in the actual crawled content — one action for the whole report.
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={handleBulkGenerate}
-            disabled={bulkGenerating || pendingCount === 0}
+            onClick={() => setShowAgentModal(true)}
+            disabled={pendingCount === 0}
             className="shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-emerald-900/30"
           >
-            {bulkGenerating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Generating fixes...
-              </>
-            ) : pendingCount === 0 ? (
+            {pendingCount === 0 ? (
               <>
                 <Check className="h-4 w-4" /> All Fixes Generated
               </>
@@ -467,8 +454,16 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
             )}
           </button>
         </div>
-        {bulkError && <p className="text-xs text-rose-400 mt-3">{bulkError}</p>}
       </div>
+
+      {showAgentModal && (
+        <AgentFixModal
+          scanId={data.id}
+          targets={pendingTargets}
+          onComplete={handleAgentComplete}
+          onClose={() => setShowAgentModal(false)}
+        />
+      )}
 
       {/* Severity Breakdown + Category Filter Pills + Export */}
       <div className="space-y-3 pt-2 border-t border-white/10 animate-fade-in-up" style={{ animationDelay: '120ms' }}>
