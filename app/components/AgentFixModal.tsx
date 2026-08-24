@@ -1,7 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FileSearch, ScanSearch, Wand2, ShieldCheck, CheckCircle2, X, Bot, Loader2, MinusCircle } from 'lucide-react';
+import {
+  FileSearch,
+  Server,
+  ScanSearch,
+  Wand2,
+  Lock,
+  UploadCloud,
+  CheckCircle2,
+  X,
+  Bot,
+  Loader2,
+  MinusCircle,
+  ShieldCheck,
+} from 'lucide-react';
 
 export const AGENT_NAME = 'Arthur';
 
@@ -9,13 +22,22 @@ export const AGENT_NAME = 'Arthur';
 // This is a UI-side mapping of the agentic flow, not a claim of new backend
 // orchestration — the real work is still the single existing bulk endpoint;
 // these phases just narrate what that call is conceptually doing while it's
-// in flight. Timing is heuristic, same pattern as the audit-running screen.
+// in flight, plus a real authorization gate before results are reflected in
+// the report. Timing is heuristic, same pattern as the audit-running screen.
 const AGENT_PHASES = [
   { label: 'Reading flagged suggestions', icon: FileSearch },
+  { label: 'Identifying CMS platform', icon: Server },
   { label: 'Cross-referencing crawled page content', icon: ScanSearch },
   { label: 'Drafting implementation snippets', icon: Wand2 },
-  { label: 'Validating each fix', icon: ShieldCheck },
+  { label: 'Awaiting authorization to implement', icon: Lock },
+  { label: 'Applying authorized fixes to report', icon: UploadCloud },
 ];
+const CMS_PHASE_INDEX = 1;
+
+function formatCms(detectedCms: string | null): string {
+  if (detectedCms === 'wordpress') return 'WordPress';
+  return 'Custom / unrecognized platform';
+}
 
 export interface AgentFixTarget {
   id: string;
@@ -34,11 +56,13 @@ type ItemStatus = 'queued' | 'processing' | 'done' | 'skipped' | 'error';
 export default function AgentFixModal({
   scanId,
   targets,
+  detectedCms,
   onClose,
   onComplete,
 }: {
   scanId: string;
   targets: AgentFixTarget[];
+  detectedCms: string | null;
   onClose: () => void;
   onComplete: (results: AgentFixResult[]) => void;
 }) {
@@ -46,9 +70,14 @@ export default function AgentFixModal({
   const [itemStatus, setItemStatus] = useState<Record<string, ItemStatus>>(() =>
     Object.fromEntries(targets.map((t) => [t.id, 'queued' as ItemStatus]))
   );
-  const [finished, setFinished] = useState(false);
+  const [draftResults, setDraftResults] = useState<AgentFixResult[] | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
+
+  const cmsLabel = formatCms(detectedCms);
+  const awaitingAuthorization = draftResults !== null && !applying && !applied;
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -56,11 +85,12 @@ export default function AgentFixModal({
 
     // Simulated phase/item progression, purely visual — the real status of
     // each suggestion (done/skipped/error) is only ever set from the actual
-    // API response below, never invented by these timers.
+    // API response below, never invented by these timers. The CMS label
+    // itself is real data already known from the crawl, just revealed here.
     const phaseTimers = [
-      setTimeout(() => setPhaseIndex(1), 700),
-      setTimeout(() => setPhaseIndex(2), 1600),
-      setTimeout(() => setPhaseIndex(3), Math.max(2600, targets.length * 500)),
+      setTimeout(() => setPhaseIndex(1), 600),
+      setTimeout(() => setPhaseIndex(2), 1300),
+      setTimeout(() => setPhaseIndex(3), Math.max(2200, targets.length * 450)),
     ];
     const itemTimers = targets.map((t, i) =>
       setTimeout(() => {
@@ -81,9 +111,10 @@ export default function AgentFixModal({
           }
           return next;
         });
-        setPhaseIndex(AGENT_PHASES.length);
-        setFinished(true);
-        onComplete(results);
+        // Drafts are ready, but nothing is reflected in the report yet —
+        // that only happens once the user authorizes below.
+        setPhaseIndex(4);
+        setDraftResults(results);
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : `${AGENT_NAME} ran into a problem generating these fixes.`);
@@ -102,10 +133,21 @@ export default function AgentFixModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleAuthorize = () => {
+    if (!draftResults) return;
+    setApplying(true);
+    setPhaseIndex(5);
+    setTimeout(() => {
+      onComplete(draftResults);
+      setApplying(false);
+      setApplied(true);
+    }, 500);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in-up">
       <div className="w-full max-w-lg glass-panel rounded-2xl p-6 md:p-7 shadow-2xl shadow-black/50 animate-scale-in relative">
-        {(finished || error) && (
+        {(applied || error || awaitingAuthorization) && (
           <button
             type="button"
             onClick={onClose}
@@ -119,7 +161,7 @@ export default function AgentFixModal({
         {/* Persona */}
         <div className="flex items-center gap-3 mb-6">
           <div className="relative h-11 w-11 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-900/40">
-            {!finished && !error && <span className="absolute inset-0 rounded-xl bg-emerald-400/30 animate-pulse-ring" />}
+            {!applied && !error && !awaitingAuthorization && <span className="absolute inset-0 rounded-xl bg-emerald-400/30 animate-pulse-ring" />}
             <Bot className="h-5 w-5 text-white relative" />
           </div>
           <div>
@@ -138,6 +180,7 @@ export default function AgentFixModal({
                 const Icon = phase.icon;
                 const isDone = idx < phaseIndex;
                 const isActive = idx === phaseIndex;
+                const showCms = idx === CMS_PHASE_INDEX && (isDone || isActive);
                 return (
                   <div
                     key={phase.label}
@@ -151,6 +194,9 @@ export default function AgentFixModal({
                       <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-emerald-300' : 'text-slate-600'}`} />
                     )}
                     <span className={`text-xs font-mono ${isActive ? 'text-emerald-200' : isDone ? 'text-emerald-400/70' : 'text-slate-600'}`}>{phase.label}</span>
+                    {showCms && (
+                      <span className="ml-auto shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-slate-300">{cmsLabel}</span>
+                    )}
                   </div>
                 );
               })}
@@ -173,10 +219,47 @@ export default function AgentFixModal({
               })}
             </div>
 
-            {finished && (
+            {/* Authorization gate — real interaction: nothing is reflected in the
+                report until the user explicitly authorizes it here. */}
+            {awaitingAuthorization && draftResults && (
+              <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
+                <div className="flex items-start gap-2 text-xs text-amber-300 bg-amber-950/30 border border-amber-500/20 rounded-lg p-3">
+                  <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    {AGENT_NAME} has drafted {draftResults.filter((r) => r.implementationSnippet).length} fix
+                    {draftResults.filter((r) => r.implementationSnippet).length === 1 ? '' : 'es'} for your{' '}
+                    <strong className="text-amber-200">{cmsLabel}</strong> site. Nothing is applied to your report until you authorize it.
+                  </span>
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg transition-colors"
+                  >
+                    Review later
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAuthorize}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 px-4 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/30"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" /> Authorize &amp; Apply
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {applying && (
+              <div className="mt-5 pt-4 border-t border-white/10 flex items-center gap-2 text-xs text-emerald-300">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying authorized fixes to your report...
+              </div>
+            )}
+
+            {applied && (
               <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
                 <p className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> {AGENT_NAME} is done.
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Authorized and applied to your report.
                 </p>
                 <button
                   type="button"

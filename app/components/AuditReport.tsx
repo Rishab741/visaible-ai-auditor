@@ -53,6 +53,7 @@ export interface AuditScanResult {
   overallScore: number;
   categoryScores: Record<string, number> | null;
   status: string;
+  detectedCms?: string | null;
   pages: ScannedPage[];
   suggestions: Suggestion[];
   fromCache?: boolean;
@@ -460,6 +461,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
         <AgentFixModal
           scanId={data.id}
           targets={pendingTargets}
+          detectedCms={data.detectedCms ?? null}
           onComplete={handleAgentComplete}
           onClose={() => setShowAgentModal(false)}
         />
