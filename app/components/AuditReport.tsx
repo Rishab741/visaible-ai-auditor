@@ -4,26 +4,24 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Sparkles,
-  AlertTriangle,
   ExternalLink,
   Layers,
   FileText,
-  Copy,
   Check,
   Building2,
   ShieldCheck,
   History,
   RefreshCw,
-  Code2,
-  ChevronDown,
   ClipboardList,
   Wand2,
   ArrowLeft,
   LayoutDashboard,
-  MinusCircle,
   Bot,
+  ChevronsDownUp,
+  ChevronsUpDown,
 } from 'lucide-react';
 import AgentFixModal, { AGENT_NAME, type AgentFixResult } from './AgentFixModal';
+import SuggestionCard from './SuggestionCard';
 
 export interface Suggestion {
   id: string;
@@ -210,7 +208,10 @@ function CategoryScoreBar({ label, score, revealed, delayMs }: { label: string; 
 export default function AuditReport({ data, onRefresh, refreshing }: { data: AuditScanResult; onRefresh: () => void; refreshing: boolean }) {
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  // Cards default collapsed — a report with a dozen fully-expanded cards
+  // (each showing why/fix/snippet/origin) reads as an unscannable wall of
+  // text, especially once Arthur has filled in every snippet.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(data.suggestions.map((s) => s.id)));
   const [suggestions, setSuggestions] = useState(data.suggestions);
   const [revealed, setRevealed] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -247,6 +248,10 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
       return next;
     });
   };
+
+  const expandAll = () => setCollapsedIds(new Set());
+  const collapseAll = () => setCollapsedIds(new Set(suggestions.map((s) => s.id)));
+  const allExpanded = collapsedIds.size === 0;
 
   const pendingTargets = suggestions
     .filter((s) => !s.implementationSnippet && !notApplicableIds.has(s.id))
@@ -380,81 +385,75 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
         </div>
       )}
 
-      {/* Deterministic Category Score Breakdown */}
-      {data.categoryScores && (
-        <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '75ms' }}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-indigo-400" /> Score Breakdown
+      {/* Deterministic Category Score Breakdown + Crawled Pages, side by side to keep the top section compact */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {data.categoryScores && (
+          <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '75ms' }}>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-indigo-400" /> Score Breakdown
+            </h3>
+            <p className="text-[11px] text-slate-500 mb-4">Computed deterministically — not model-generated, so re-running an audit reproduces the same scores.</p>
+            <div className="space-y-3">
+              {CATEGORIES.filter((c) => c.key !== 'ALL').map((cat, idx) => (
+                <CategoryScoreBar key={cat.key} label={cat.label} score={data.categoryScores?.[cat.key] ?? 0} revealed={revealed} delayMs={idx * 90} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '90ms' }}>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-indigo-400" /> Analyzed Pages ({data.pages.length})
           </h3>
-          <p className="text-[11px] text-slate-500 mb-4">
-            Computed deterministically from crawled schema, page coverage, structure, and cross-page facts — not model-generated, so re-running an audit reproduces the same scores.
-          </p>
-          <div className="space-y-3">
-            {CATEGORIES.filter((c) => c.key !== 'ALL').map((cat, idx) => (
-              <CategoryScoreBar key={cat.key} label={cat.label} score={data.categoryScores?.[cat.key] ?? 0} revealed={revealed} delayMs={idx * 90} />
+          <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+            {pagesByType.map((group) => (
+              <div key={group.type}>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                  {group.label} <span className="text-slate-600">({group.pages.length})</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {group.pages.map((p) => (
+                    <span key={p.id} className="bg-white/5 text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 font-mono" title={p.url}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      {p.url.replace(data.targetUrl, '') || '/'}
+                    </span>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Crawled Pages, grouped by type */}
-      <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '90ms' }}>
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-          <FileText className="h-4 w-4 text-indigo-400" /> Analyzed Pages ({data.pages.length})
-        </h3>
-        <div className="space-y-3">
-          {pagesByType.map((group) => (
-            <div key={group.type}>
-              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                {group.label} <span className="text-slate-600">({group.pages.length})</span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {group.pages.map((p) => (
-                  <span key={p.id} className="bg-white/5 text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 font-mono" title={p.url}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    {p.url.replace(data.targetUrl, '') || '/'}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 
       {/* Generate Implementation Fixes — the one main agentic action, not a per-card trigger */}
       <div
-        className="glass-panel rounded-2xl p-5 md:p-6 border-emerald-500/20 bg-gradient-to-br from-emerald-950/30 to-teal-950/10 animate-fade-in-up"
+        className="glass-panel rounded-xl px-5 py-3.5 border-emerald-500/20 bg-gradient-to-br from-emerald-950/30 to-teal-950/10 animate-fade-in-up flex items-center justify-between gap-4 flex-wrap"
         style={{ animationDelay: '105ms' }}
       >
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-900/30">
-              <Bot className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">Generate Implementation Fixes</h3>
-              <p className="text-xs text-slate-400 mt-0.5 max-w-md">
-                {AGENT_NAME}, your implementation agent, turns every applicable suggestion into a ready-to-paste code snippet, grounded in the actual crawled content — one action for the whole report.
-              </p>
-            </div>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-900/30">
+            <Bot className="h-4 w-4 text-white" />
           </div>
-          <button
-            type="button"
-            onClick={() => setShowAgentModal(true)}
-            disabled={pendingCount === 0}
-            className="shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-emerald-900/30"
-          >
-            {pendingCount === 0 ? (
-              <>
-                <Check className="h-4 w-4" /> All Fixes Generated
-              </>
-            ) : (
-              <>
-                <Wand2 className="h-4 w-4" /> Generate {pendingCount} Implementation Fix{pendingCount === 1 ? '' : 'es'}
-              </>
-            )}
-          </button>
+          <p className="text-sm text-slate-300 truncate">
+            <span className="font-semibold text-white">{AGENT_NAME}</span> can draft ready-to-paste fixes for this report.
+          </p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowAgentModal(true)}
+          disabled={pendingCount === 0}
+          className="shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 px-4 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/30"
+        >
+          {pendingCount === 0 ? (
+            <>
+              <Check className="h-4 w-4" /> All Fixes Generated
+            </>
+          ) : (
+            <>
+              <Wand2 className="h-4 w-4" /> Generate {pendingCount} Fix{pendingCount === 1 ? '' : 'es'}
+            </>
+          )}
+        </button>
       </div>
 
       {showAgentModal && (
@@ -477,21 +476,38 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
               </span>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => copyToClipboard(buildReportMarkdown({ ...data, suggestions }), 'full-report')}
-            className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            {copiedId === 'full-report' ? (
-              <>
-                <Check className="h-3.5 w-3.5" /> Report Copied
-              </>
-            ) : (
-              <>
-                <ClipboardList className="h-3.5 w-3.5" /> Copy Full Report
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={allExpanded ? collapseAll : expandAll}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              {allExpanded ? (
+                <>
+                  <ChevronsDownUp className="h-3.5 w-3.5" /> Collapse All
+                </>
+              ) : (
+                <>
+                  <ChevronsUpDown className="h-3.5 w-3.5" /> Expand All
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => copyToClipboard(buildReportMarkdown({ ...data, suggestions }), 'full-report')}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              {copiedId === 'full-report' ? (
+                <>
+                  <Check className="h-3.5 w-3.5" /> Report Copied
+                </>
+              ) : (
+                <>
+                  <ClipboardList className="h-3.5 w-3.5" /> Copy Full Report
+                </>
+              )}
+            </button>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {CATEGORIES.map((cat) => (
@@ -524,115 +540,18 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
                   <span className="text-xs font-mono text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">{group.items.length}</span>
                 </h3>
               )}
-              {group.items.map((item, idx) => {
-                const affectedUrls: string[] = (() => {
-                  try {
-                    return JSON.parse(item.affectedUrls);
-                  } catch {
-                    return [item.affectedUrls];
-                  }
-                })();
-                const isOpen = !collapsedIds.has(item.id);
-                const isNotApplicable = notApplicableIds.has(item.id);
-
-                return (
-                  <div
-                    key={item.id}
-                    className="glass-panel rounded-2xl overflow-hidden hover:border-white/20 hover:shadow-lg hover:shadow-black/20 transition-all animate-fade-in-up"
-                    style={{ animationDelay: `${Math.min(idx, 8) * 45}ms` }}
-                  >
-                    <button type="button" onClick={() => toggleCollapsed(item.id)} className="w-full text-left p-6 pb-0 cursor-pointer">
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-0.5 rounded font-mono font-bold uppercase ${SEVERITY_STYLES[item.severity]}`}>{item.severity} Severity</span>
-                          <span className="text-xs font-mono text-slate-400 bg-white/5 px-2 py-0.5 rounded">{item.category.replace('_', ' ')}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono text-slate-500">Confidence: {(item.confidenceScore * 100).toFixed(0)}%</span>
-                          <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                        </div>
-                      </div>
-
-                      <h4 className="text-base font-semibold text-slate-100 flex items-start gap-2 mb-2 pb-6">
-                        <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-                        {item.issue}
-                      </h4>
-                    </button>
-
-                    <div className={`accordion-rows ${isOpen ? 'is-open' : ''}`}>
-                      <div className="accordion-inner">
-                        <div className="space-y-3 px-6 pb-6 text-sm">
-                          <div className="bg-slate-950/50 p-3.5 rounded-lg border border-white/5">
-                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Why this degrades AI Engine Visibility:</p>
-                            <p className="text-slate-300 leading-relaxed">{item.impactReason}</p>
-                          </div>
-
-                          <div className="bg-indigo-950/30 p-3.5 rounded-lg border border-indigo-500/20">
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">Actionable Optimization Fix:</p>
-                              <button onClick={() => copyToClipboard(item.suggestedFix, item.id)} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono transition-colors">
-                                {copiedId === item.id ? (
-                                  <>
-                                    <Check className="h-3 w-3" /> Copied
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="h-3 w-3" /> Copy Fix
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                            <pre className="text-slate-200 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1">{item.suggestedFix}</pre>
-                          </div>
-
-                          {/* Implementation Snippet — populated by the report-level "Generate Implementation Fixes" action */}
-                          {item.implementationSnippet && (
-                            <div className="bg-slate-950/50 p-3.5 rounded-lg border border-white/5">
-                              <div className="flex items-center justify-between mb-1">
-                                <p className="text-xs font-semibold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
-                                  <Code2 className="h-3 w-3" /> Implementation Snippet
-                                </p>
-                                <button
-                                  onClick={() => copyToClipboard(item.implementationSnippet!, `${item.id}-snippet`)}
-                                  className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-mono transition-colors"
-                                >
-                                  {copiedId === `${item.id}-snippet` ? (
-                                    <>
-                                      <Check className="h-3 w-3" /> Copied
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="h-3 w-3" /> Copy Snippet
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                              <pre className="text-emerald-100/90 text-xs font-mono whitespace-pre-wrap leading-relaxed mt-1 overflow-x-auto">{item.implementationSnippet}</pre>
-                            </div>
-                          )}
-                          {isNotApplicable && !item.implementationSnippet && (
-                            <div className="flex items-center gap-2 text-xs text-slate-500 bg-white/[0.03] border border-dashed border-white/10 rounded-lg p-3">
-                              <MinusCircle className="h-3.5 w-3.5 shrink-0" />
-                              This fix isn&apos;t the kind of thing that reduces to a pasteable snippet.
-                            </div>
-                          )}
-
-                          {affectedUrls.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              <span className="text-xs text-slate-500">Origin:</span>
-                              {affectedUrls.map((u, i) => (
-                                <span key={i} className="text-xs text-slate-400 font-mono bg-white/5 px-2 py-0.5 rounded">
-                                  {u}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {group.items.map((item, idx) => (
+                <SuggestionCard
+                  key={item.id}
+                  item={item}
+                  isOpen={!collapsedIds.has(item.id)}
+                  isNotApplicable={notApplicableIds.has(item.id)}
+                  copiedId={copiedId}
+                  onToggleOpen={() => toggleCollapsed(item.id)}
+                  onCopy={copyToClipboard}
+                  animationDelay={`${Math.min(idx, 8) * 45}ms`}
+                />
+              ))}
             </div>
           ))
         )}
