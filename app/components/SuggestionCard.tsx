@@ -5,9 +5,9 @@ import { AlertTriangle, ChevronDown, Copy, Check, Code2, MinusCircle, ShieldChec
 import type { Suggestion } from './AuditReport';
 
 const SEVERITY_STYLES: Record<Suggestion['severity'], string> = {
-  HIGH: 'bg-red-950/70 text-red-400 border border-red-800/70',
-  MEDIUM: 'bg-amber-950/70 text-amber-400 border border-amber-800/70',
-  LOW: 'bg-blue-950/70 text-blue-400 border border-blue-800/70',
+  HIGH: 'bg-rose-950/70 text-rose-400 border border-rose-800/70',
+  MEDIUM: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
+  LOW: 'bg-cyan-950/70 text-cyan-400 border border-cyan-800/70',
 };
 
 export default function SuggestionCard({
@@ -66,20 +66,20 @@ export default function SuggestionCard({
             {item.confidenceScore === 1 ? (
               <span
                 title="Verified directly from crawled schema/content by code — not a model judgment"
-                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-sky-950/70 text-sky-400 border border-sky-800/70 flex items-center gap-1"
+                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-cyan-950/70 text-cyan-400 border border-cyan-800/70 flex items-center gap-1"
               >
                 <ShieldCheck className="h-2.5 w-2.5" /> Verified
               </span>
             ) : (
               <span
                 title="Identified by AI reasoning across the crawled content, grounded and quote-checked against the crawl"
-                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-purple-950/70 text-purple-400 border border-purple-800/70 flex items-center gap-1"
+                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-violet-950/70 text-violet-400 border border-violet-800/70 flex items-center gap-1"
               >
                 <Sparkles className="h-2.5 w-2.5" /> AI Assessed
               </span>
             )}
             {item.implementationSnippet && (
-              <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-emerald-950/70 text-emerald-400 border border-emerald-800/70 flex items-center gap-1">
+              <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-cyan-950/70 text-cyan-400 border border-cyan-800/70 flex items-center gap-1">
                 <Code2 className="h-2.5 w-2.5" /> Fix Ready
               </span>
             )}
@@ -91,7 +91,7 @@ export default function SuggestionCard({
         </div>
 
         <h4 className="text-sm font-semibold text-slate-100 flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+          <AlertTriangle className="h-4 w-4 text-violet-400 shrink-0 mt-0.5" />
           {item.issue}
         </h4>
       </button>
@@ -104,7 +104,7 @@ export default function SuggestionCard({
               <p className="text-slate-300 leading-relaxed">{item.impactReason}</p>
             </div>
 
-            <div className="bg-indigo-950/30 rounded-lg border border-indigo-500/20 overflow-hidden">
+            <div className="bg-cyan-950/20 rounded-lg border border-cyan-500/20 overflow-hidden">
               <div className="flex items-center justify-between px-3.5 pt-3 gap-2">
                 {item.implementationSnippet ? (
                   <div className="flex items-center gap-1 bg-black/20 rounded-lg p-0.5">
@@ -112,7 +112,7 @@ export default function SuggestionCard({
                       type="button"
                       onClick={() => setTab('fix')}
                       className={`text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md transition-colors ${
-                        tab === 'fix' ? 'bg-indigo-600 text-white' : 'text-indigo-300 hover:text-white'
+                        tab === 'fix' ? 'bg-cyan-500 text-slate-950' : 'text-cyan-300 hover:text-white'
                       }`}
                     >
                       Fix
@@ -121,18 +121,18 @@ export default function SuggestionCard({
                       type="button"
                       onClick={() => setTab('snippet')}
                       className={`text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${
-                        tab === 'snippet' ? 'bg-emerald-600 text-white' : 'text-emerald-300 hover:text-white'
+                        tab === 'snippet' ? 'bg-violet-500 text-white' : 'text-violet-300 hover:text-white'
                       }`}
                     >
                       <Code2 className="h-3 w-3" /> Snippet
                     </button>
                   </div>
                 ) : (
-                  <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">Actionable Optimization Fix</p>
+                  <p className="text-xs font-semibold text-cyan-300 uppercase tracking-wider">Actionable Optimization Fix</p>
                 )}
                 <button
                   onClick={() => onCopy(copyText, copyId)}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono transition-colors shrink-0"
+                  className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono transition-colors shrink-0"
                 >
                   {copiedId === copyId ? (
                     <>
@@ -147,7 +147,7 @@ export default function SuggestionCard({
               </div>
               <pre
                 className={`text-xs font-mono whitespace-pre-wrap leading-relaxed p-3.5 pt-2 overflow-x-auto ${
-                  showingSnippet ? 'text-emerald-100/90' : 'text-slate-200'
+                  showingSnippet ? 'text-violet-100/90' : 'text-slate-200'
                 }`}
               >
                 {copyText}

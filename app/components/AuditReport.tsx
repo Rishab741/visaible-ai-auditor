@@ -15,7 +15,6 @@ import {
   ClipboardList,
   Wand2,
   ArrowLeft,
-  LayoutDashboard,
   Bot,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -70,9 +69,9 @@ const PAGE_TYPE_LABELS: Record<string, string> = {
 };
 
 const SEVERITY_STYLES: Record<Suggestion['severity'], string> = {
-  HIGH: 'bg-red-950/70 text-red-400 border border-red-800/70',
-  MEDIUM: 'bg-amber-950/70 text-amber-400 border border-amber-800/70',
-  LOW: 'bg-blue-950/70 text-blue-400 border border-blue-800/70',
+  HIGH: 'bg-rose-950/70 text-rose-400 border border-rose-800/70',
+  MEDIUM: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
+  LOW: 'bg-cyan-950/70 text-cyan-400 border border-cyan-800/70',
 };
 
 const CATEGORIES = [
@@ -85,11 +84,11 @@ const CATEGORIES = [
 ];
 
 function scoreBarClass(score: number): string {
-  return score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-rose-500';
+  return score >= 75 ? 'bg-cyan-400' : score >= 50 ? 'bg-violet-400' : 'bg-rose-400';
 }
 
 function scoreStrokeColor(score: number): string {
-  return score >= 75 ? '#34d399' : score >= 50 ? '#fbbf24' : '#fb7185';
+  return score >= 75 ? '#22d3ee' : score >= 50 ? '#a78bfa' : '#fb7185';
 }
 
 function buildReportMarkdown(data: AuditScanResult): string {
@@ -312,12 +311,9 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
   return (
     <section ref={resultsRef} className="max-w-6xl mx-auto space-y-8 scroll-mt-6">
       {/* Nav */}
-      <div className="flex items-center justify-between animate-fade-in-up">
+      <div className="animate-fade-in-up">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
           <ArrowLeft className="h-4 w-4" /> Back to Search
-        </Link>
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
-          <LayoutDashboard className="h-4 w-4" /> Dashboard
         </Link>
       </div>
 
@@ -327,7 +323,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
           <div className="min-w-0">
             <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Business</p>
             <h2 className="text-xl font-bold text-white mt-1 flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-indigo-400 shrink-0" />
+              <Building2 className="h-5 w-5 text-cyan-400 shrink-0" />
               <span className="truncate">{data.hotelName || 'Local Business'}</span>
             </h2>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -349,7 +345,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
               type="button"
               onClick={onRefresh}
               disabled={refreshing}
-              className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-indigo-400 hover:text-indigo-300 font-medium disabled:opacity-50 transition-colors"
+              className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-cyan-400 hover:text-cyan-300 font-medium disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} /> Run fresh audit
             </button>
@@ -376,10 +372,10 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
 
       {/* Executive Summary */}
       {data.summary && (
-        <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-2xl p-5 flex items-start gap-3 animate-fade-in-up backdrop-blur-sm" style={{ animationDelay: '60ms' }}>
-          <Sparkles className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
+        <div className="bg-violet-950/20 border border-violet-500/20 rounded-2xl p-5 flex items-start gap-3 animate-fade-in-up backdrop-blur-sm" style={{ animationDelay: '60ms' }}>
+          <Sparkles className="h-5 w-5 text-violet-400 shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wider mb-1">Executive Summary</p>
+            <p className="text-xs font-semibold text-violet-300 uppercase tracking-wider mb-1">Executive Summary</p>
             <p className="text-sm text-slate-300 leading-relaxed">{data.summary}</p>
           </div>
         </div>
@@ -390,7 +386,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
         {data.categoryScores && (
           <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '75ms' }}>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-indigo-400" /> Score Breakdown
+              <ShieldCheck className="h-4 w-4 text-cyan-400" /> Score Breakdown
             </h3>
             <p className="text-[11px] text-slate-500 mb-4">
               Computed deterministically — not model-generated, so re-running an audit reproduces the same scores. Suggestions below are a hybrid: rule-verified findings plus AI reasoning for
@@ -406,7 +402,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
 
         <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '90ms' }}>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-            <FileText className="h-4 w-4 text-indigo-400" /> Analyzed Pages ({data.pages.length})
+            <FileText className="h-4 w-4 text-cyan-400" /> Analyzed Pages ({data.pages.length})
           </h3>
           <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
             {pagesByType.map((group) => (
@@ -417,7 +413,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
                 <div className="flex flex-wrap gap-2">
                   {group.pages.map((p) => (
                     <span key={p.id} className="bg-white/5 text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 font-mono" title={p.url}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
                       {p.url.replace(data.targetUrl, '') || '/'}
                     </span>
                   ))}
@@ -430,11 +426,11 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
 
       {/* Generate Implementation Fixes — the one main agentic action, not a per-card trigger */}
       <div
-        className="glass-panel rounded-xl px-5 py-3.5 border-emerald-500/20 bg-gradient-to-br from-emerald-950/30 to-teal-950/10 animate-fade-in-up flex items-center justify-between gap-4 flex-wrap"
+        className="glass-panel rounded-xl px-5 py-3.5 border-cyan-500/20 bg-gradient-to-br from-cyan-950/30 to-violet-950/10 animate-fade-in-up flex items-center justify-between gap-4 flex-wrap"
         style={{ animationDelay: '105ms' }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-900/30">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center shrink-0 shadow-lg shadow-cyan-900/30">
             <Bot className="h-4 w-4 text-white" />
           </div>
           <p className="text-sm text-slate-300 truncate">
@@ -445,7 +441,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
           type="button"
           onClick={() => setShowAgentModal(true)}
           disabled={pendingCount === 0}
-          className="shrink-0 inline-flex items-center gap-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 px-4 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/30"
+          className="shrink-0 inline-flex items-center gap-2 text-sm font-bold font-mono uppercase tracking-wide text-slate-950 bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 disabled:text-white disabled:bg-slate-700 px-4 py-2 rounded-lg transition-all shadow-lg shadow-cyan-500/20"
         >
           {pendingCount === 0 ? (
             <>
@@ -519,7 +515,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
               onClick={() => setSelectedCategory(cat.key)}
               className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 selectedCategory === cat.key
-                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-900/30'
+                  ? 'bg-gradient-to-r from-cyan-500 to-violet-500 text-white shadow-md shadow-cyan-900/30'
                   : 'bg-white/5 text-slate-400 hover:bg-white/10 border border-white/10'
               }`}
             >
