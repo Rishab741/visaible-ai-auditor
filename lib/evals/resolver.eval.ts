@@ -1,12 +1,12 @@
-import { resolveHotelWebsite } from '../resolver';
+import { resolveBusinessWebsite } from '../resolver';
 import { EvalCase, assert } from './framework';
 
 async function resolvesToDomain(query: string, expectedDomainFragment: string): Promise<void> {
-  const url = await resolveHotelWebsite(query);
+  const url = await resolveBusinessWebsite(query);
   const host = new URL(url).hostname.toLowerCase();
   assert(
     host.includes(expectedDomainFragment),
-    `resolveHotelWebsite("${query}") -> ${url} (host "${host}" does not include "${expectedDomainFragment}")`
+    `resolveBusinessWebsite("${query}") -> ${url} (host "${host}" does not include "${expectedDomainFragment}")`
   );
 }
 
@@ -22,13 +22,20 @@ export const resolverEvalCases: EvalCase[] = [
     run: () => resolvesToDomain('The Fullerton Hotel Sydney', 'fullertonhotels.com'),
   },
   {
-    name: 'resolver: never resolves to a known OTA/aggregator domain',
+    // Non-hospitality case — the resolver (and the whole pipeline) is meant
+    // to work for any local business, not just hotels.
+    name: 'resolver: "In-N-Out Burger" (a restaurant, not a hotel) resolves to in-n-out.com',
+    tier: 'live',
+    run: () => resolvesToDomain('In-N-Out Burger', 'in-n-out.com'),
+  },
+  {
+    name: 'resolver: never resolves to a known directory/marketplace domain',
     tier: 'live',
     run: async () => {
-      const url = await resolveHotelWebsite('Ace Hotel Sydney');
+      const url = await resolveBusinessWebsite('Ace Hotel Sydney');
       const host = new URL(url).hostname.toLowerCase();
-      const otaDomains = ['booking.com', 'expedia.com', 'agoda.com', 'hotels.com', 'tripadvisor.com'];
-      assert(!otaDomains.some((ota) => host.includes(ota)), `resolved to an OTA domain: ${host}`);
+      const directoryDomains = ['booking.com', 'expedia.com', 'agoda.com', 'hotels.com', 'tripadvisor.com', 'yelp.com', 'facebook.com'];
+      assert(!directoryDomains.some((d) => host.includes(d)), `resolved to a directory/marketplace domain: ${host}`);
     },
   },
   {
@@ -36,7 +43,7 @@ export const resolverEvalCases: EvalCase[] = [
     tier: 'live',
     run: async () => {
       try {
-        const url = await resolveHotelWebsite('Fullerton Hotel');
+        const url = await resolveBusinessWebsite('Fullerton Hotel');
         throw new Error(`expected an ambiguity error, but got a URL: ${url}`);
       } catch (err) {
         assert(err instanceof Error, 'expected an Error to be thrown');

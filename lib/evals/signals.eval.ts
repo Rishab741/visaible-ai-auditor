@@ -39,16 +39,16 @@ export const signalsEvalCases: EvalCase[] = [
   },
   {
     // Real-world regression: a villa page tagged @type: ["HotelSuite", "Product"]
-    // was wrongly flagged as missing room schema until HotelSuite (and Suite,
-    // Apartment, Accommodation) were added to ROOM_SCHEMA_TYPES.
-    name: 'signals: HotelSuite schema type counts as room schema, not a gap',
+    // was wrongly flagged as missing offering schema until HotelSuite (and Suite,
+    // Apartment, Accommodation) were added to OFFERING_SCHEMA_TYPES.
+    name: 'signals: HotelSuite schema type counts as offering schema, not a gap',
     tier: 'fast',
     run: () => {
       const { hardFindings } = computeSiteSignals(HOTEL_SUITE_SITE.pages, HOTEL_SUITE_SITE.pageTypes);
       const falseGap = hardFindings.find(
-        (f) => f.category === 'STRUCTURED_DATA' && f.fact.includes('missing Room/HotelRoom')
+        (f) => f.category === 'STRUCTURED_DATA' && f.fact.includes('missing Product/Service/Offer')
       );
-      assert(!falseGap, `HotelSuite-typed room page was wrongly flagged as missing schema: ${JSON.stringify(falseGap)}`);
+      assert(!falseGap, `HotelSuite-typed offering page was wrongly flagged as missing schema: ${JSON.stringify(falseGap)}`);
     },
   },
   {
@@ -63,14 +63,14 @@ export const signalsEvalCases: EvalCase[] = [
     },
   },
   {
-    name: 'signals: bare site flags missing Hotel schema and missing page coverage',
+    name: 'signals: bare site flags missing LocalBusiness schema and missing page coverage',
     tier: 'fast',
     run: () => {
       const { categoryScores, hardFindings } = computeSiteSignals(BARE_SITE.pages, BARE_SITE.pageTypes);
       assert(categoryScores.STRUCTURED_DATA < 50, `expected low STRUCTURED_DATA, got ${categoryScores.STRUCTURED_DATA}`);
-      assert(categoryScores.PAGE_COVERAGE === 0, `expected 0 PAGE_COVERAGE (no rooms/amenities/etc.), got ${categoryScores.PAGE_COVERAGE}`);
+      assert(categoryScores.PAGE_COVERAGE === 0, `expected 0 PAGE_COVERAGE (no offerings/about/etc.), got ${categoryScores.PAGE_COVERAGE}`);
       const schemaFinding = hardFindings.find((f) => f.category === 'STRUCTURED_DATA' && f.severity === 'HIGH');
-      assert(!!schemaFinding, 'expected a HIGH severity STRUCTURED_DATA finding for missing Hotel schema');
+      assert(!!schemaFinding, 'expected a HIGH severity STRUCTURED_DATA finding for missing LocalBusiness schema');
       const coverageFinding = hardFindings.find((f) => f.category === 'PAGE_COVERAGE');
       assert(!!coverageFinding, 'expected a PAGE_COVERAGE finding for missing page types');
     },

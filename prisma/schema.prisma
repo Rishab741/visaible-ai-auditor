@@ -10,7 +10,7 @@ datasource db {
 model AuditScan {
   id              String         @id @default(cuid())
   targetUrl       String
-  hotelName       String?
+  hotelName       String?        // Despite the name, holds any local business's name (hotel, restaurant, shop, etc.) — kept as-is to avoid a column-rename migration; see lib/analyzer.ts
   summary         String?
   status          String         @default("PENDING") // PENDING, CRAWLING, ANALYZING, COMPLETED, FAILED
   overallScore    Int            @default(0)
@@ -27,7 +27,7 @@ model ScannedPage {
   id              String     @id @default(cuid())
   auditScanId     String
   url             String
-  pageType        String     @default("GENERAL") // HOMEPAGE, ROOMS, AMENITIES, LOCATION, DINING, POLICIES
+  pageType        String     @default("GENERAL") // HOMEPAGE, OFFERINGS, ABOUT, LOCATION, POLICIES, CONTACT
   title           String?
   markdownContent String
   rawJsonLd       String?    // Stored as stringified JSON

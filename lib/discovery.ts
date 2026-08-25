@@ -1,8 +1,8 @@
 import * as cheerio from 'cheerio';
 
-// Prototype-scale cap: enough to cover a typical boutique/independent hotel
-// site's marketing pages without a single audit crawling a huge site (e.g. a
-// chain site with thousands of blog posts) for minutes on end.
+// Prototype-scale cap: enough to cover a typical small/independent local
+// business site's marketing pages without a single audit crawling a huge
+// site (e.g. a chain site with thousands of blog posts) for minutes on end.
 const MAX_PAGES = 40;
 const MAX_BFS_DEPTH = 3;
 const DISCOVERY_CONCURRENCY = 8;
@@ -21,10 +21,11 @@ const UA_HEADERS = {
  * falls back to a breadth-first crawl of on-page links.
  *
  * Discovery is scoped to the root URL's own path prefix, not the whole origin.
- * Many hotels live on a shared group domain (e.g. fullertonhotels.com/fullerton-hotel-sydney,
- * or acehotel.com/sydney) where the bare origin also hosts sibling properties
+ * Many local businesses live on a shared group/franchise domain (e.g. a hotel
+ * at fullertonhotels.com/fullerton-hotel-sydney, or a chain location under a
+ * shared retailer domain) where the bare origin also hosts sibling locations
  * and a sitewide blog/editorial section. Scoping to the prefix keeps the audit
- * focused on the actual property instead of diluting it with unrelated pages.
+ * focused on the actual business instead of diluting it with unrelated pages.
  */
 export async function discoverPages(rootUrl: string): Promise<string[]> {
   const origin = new URL(rootUrl).origin;

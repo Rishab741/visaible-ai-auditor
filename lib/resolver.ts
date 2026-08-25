@@ -6,11 +6,11 @@ import { stableSeed } from './utils';
 const URL_REGEX = /https?:\/\/[^\s"'<>)\]]+/i;
 
 /**
- * Resolves a free-text query (hotel name, description, "name + city", etc.)
- * to the hotel's own official website using AI-powered, Google Search-grounded
- * lookup — favoring the property's own domain over OTA/aggregator listings.
+ * Resolves a free-text query (business name, description, "name + city", etc.)
+ * to the business's own official website using AI-powered, Google Search-grounded
+ * lookup — favoring the business's own domain over directory/marketplace listings.
  */
-export async function resolveHotelWebsite(query: string): Promise<string> {
+export async function resolveBusinessWebsite(query: string): Promise<string> {
   const { text } = await generateText({
     model: fastModel,
     tools: { google_search: google.tools.googleSearch({}) },
@@ -18,11 +18,11 @@ export async function resolveHotelWebsite(query: string): Promise<string> {
     temperature: 0,
     seed: stableSeed(query.toLowerCase().trim()),
     maxRetries: 3,
-    system: `You are a precise web research assistant. Given a hotel name or description, use Google Search to find the hotel's own official website homepage.
+    system: `You are a precise web research assistant. Given a local business's name or description (a hotel, restaurant, shop, clinic, salon, or any other local business), use Google Search to find that business's own official website homepage.
 
 Rules:
-- Prefer the property's own domain (or its parent hotel group's domain), never a third-party OTA/aggregator such as Booking.com, Expedia, Agoda, Hotels.com, TripAdvisor, or Google's own listing pages.
-- Respond with ONLY the single canonical https URL of the hotel's official homepage. No markdown, no explanation, no extra words.
+- Prefer the business's own domain (or its parent chain/group's domain), never a third-party directory, marketplace, or listing site such as Yelp, TripAdvisor, Booking.com, Expedia, Agoda, Google Maps/Business listing pages, Facebook, Instagram, or Yellow Pages.
+- Respond with ONLY the single canonical https URL of the business's official homepage. No markdown, no explanation, no extra words.
 - If you cannot confidently identify an official website, respond with exactly: NOT_FOUND`,
     prompt: `Find the official website for: ${query}`,
   });
@@ -30,7 +30,7 @@ Rules:
   const match = text.trim().match(URL_REGEX);
   if (!match) {
     throw new Error(
-      `Could not find an official website for "${query}". Try pasting the hotel's URL directly.`
+      `Could not find an official website for "${query}". Try pasting the business's URL directly.`
     );
   }
 

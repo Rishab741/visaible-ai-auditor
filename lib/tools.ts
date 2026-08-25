@@ -1,10 +1,10 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { crawlHotelPage, ExtractedPageData } from './crawler';
+import { crawlBusinessPage, ExtractedPageData } from './crawler';
 import { findLinksByKeywords } from './discovery';
 
 /**
- * ai-sdk tool wrapping crawlHotelPage. The full ExtractedPageData is handed
+ * ai-sdk tool wrapping crawlBusinessPage. The full ExtractedPageData is handed
  * to onCrawled (so it flows into the same pipeline/scoring path as every
  * statically-discovered page) — the agent itself only sees a small summary,
  * to keep its context lean.
@@ -24,7 +24,7 @@ export function createCrawlPageTool(onCrawled: (page: ExtractedPageData) => void
     execute: async ({ url }) => {
       try {
         new URL(url); // throws for a malformed URL, caught below
-        const page = await crawlHotelPage(url);
+        const page = await crawlBusinessPage(url);
         onCrawled(page);
         return {
           success: true,

@@ -61,11 +61,11 @@ const SEVERITY_ORDER: Record<Suggestion['severity'], number> = { HIGH: 0, MEDIUM
 
 const PAGE_TYPE_LABELS: Record<string, string> = {
   HOMEPAGE: 'Homepage',
-  ROOMS: 'Rooms',
-  AMENITIES: 'Amenities',
-  DINING: 'Dining',
+  OFFERINGS: 'Offerings',
+  ABOUT: 'About',
   LOCATION: 'Location',
   POLICIES: 'Policies',
+  CONTACT: 'Contact',
   GENERAL: 'Other Pages',
 };
 
@@ -94,7 +94,7 @@ function scoreStrokeColor(score: number): string {
 
 function buildReportMarkdown(data: AuditScanResult): string {
   const lines: string[] = [];
-  lines.push(`# AI Visibility Audit — ${data.hotelName || 'Hotel Property'}`);
+  lines.push(`# AI Visibility Audit — ${data.hotelName || 'Local Business'}`);
   lines.push(`${data.targetUrl}`);
   lines.push('');
   lines.push(`**Overall AI Readability Score:** ${data.overallScore}/100`);
@@ -325,10 +325,10 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
         <div className="glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform">
           <div className="min-w-0">
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Property</p>
+            <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Business</p>
             <h2 className="text-xl font-bold text-white mt-1 flex items-center gap-2">
               <Building2 className="h-5 w-5 text-indigo-400 shrink-0" />
-              <span className="truncate">{data.hotelName || 'Hotel Property'}</span>
+              <span className="truncate">{data.hotelName || 'Local Business'}</span>
             </h2>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <a

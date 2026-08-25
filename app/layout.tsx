@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Visaible — AI Visibility Auditor",
-  description: "Audit hotel websites for how clearly AI answer engines like ChatGPT, Perplexity, and Gemini can extract, trust, and recommend them.",
+  title: "Arthur AI — AI Visibility Auditor",
+  description: "Audit local business websites for how clearly AI answer engines like ChatGPT, Perplexity, and Gemini can extract, trust, and recommend them.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

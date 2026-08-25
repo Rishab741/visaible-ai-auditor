@@ -1,8 +1,8 @@
-import { crawlHotelPage, ExtractedPageData } from './crawler';
+import { crawlBusinessPage, ExtractedPageData } from './crawler';
 import { discoverPages, normalizeUrl } from './discovery';
 import { investigateGaps } from './investigator';
-import { analyzeHotelWebsite } from './analyzer';
-import { resolveHotelWebsite } from './resolver';
+import { analyzeBusinessWebsite } from './analyzer';
+import { resolveBusinessWebsite } from './resolver';
 import { prisma } from './prisma';
 import { PIPELINE_VERSION } from './version';
 
@@ -24,11 +24,11 @@ function isUrlLike(input: string): boolean {
 function classifyPageType(url: string, targetUrl: string): string {
   const path = new URL(url).pathname.toLowerCase();
   if (url === targetUrl || path === '/' || path === '') return 'HOMEPAGE';
-  if (/room|suite|accommodat/.test(path)) return 'ROOMS';
-  if (/amenit|facilit|wellness|spa|gym|pool/.test(path)) return 'AMENITIES';
-  if (/dining|restaurant|bar|menu|food/.test(path)) return 'DINING';
-  if (/location|direction|map|contact/.test(path)) return 'LOCATION';
-  if (/polic|terms|faq|cancellation/.test(path)) return 'POLICIES';
+  if (/room|suite|accommodat|menu|product|service|shop|store|pricing|amenit|facilit|wellness|spa|gym|pool|dining|restaurant|bar|food/.test(path)) return 'OFFERINGS';
+  if (/about|our-story|who-we-are|team|history/.test(path)) return 'ABOUT';
+  if (/location|direction|map|visit|hours/.test(path)) return 'LOCATION';
+  if (/polic|terms|faq|cancellation|privacy|returns/.test(path)) return 'POLICIES';
+  if (/contact/.test(path)) return 'CONTACT';
   return 'GENERAL';
 }
 
@@ -38,13 +38,13 @@ function classifyPageType(url: string, targetUrl: string): string {
 export async function runAuditScan(rootQuery: string, options: { forceRefresh?: boolean } = {}) {
   const trimmedInput = rootQuery.trim();
 
-  // Accept either a direct URL/domain, or a free-text hotel name/description —
-  // the latter is resolved to the hotel's official site via search-grounded AI lookup.
+  // Accept either a direct URL/domain, or a free-text business name/description —
+  // the latter is resolved to the business's official site via search-grounded AI lookup.
   const resolvedUrl = isUrlLike(trimmedInput)
     ? trimmedInput.startsWith('http')
       ? trimmedInput
       : `https://${trimmedInput}`
-    : await resolveHotelWebsite(trimmedInput);
+    : await resolveBusinessWebsite(trimmedInput);
 
   // Canonicalize so different phrasings of the same search ("Ace Hotel Sydney"
   // vs. the resolved URL with/without a trailing slash) converge on one cache key.
@@ -91,7 +91,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
       await Promise.all(
         batch.map(async (url) => {
           try {
-            const pageData = await crawlHotelPage(url);
+            const pageData = await crawlBusinessPage(url);
             if (pageData.markdown && pageData.markdown.length > 50) {
               crawledPages.push(pageData);
               const pageType = classifyPageType(url, targetUrl);
@@ -155,7 +155,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
 
     // 4. Run Multi-Pass AI Analysis (category/overall scores are computed
     // deterministically from the crawl — see lib/signals.ts)
-    const analysisReport = await analyzeHotelWebsite(crawledPages, pageTypes);
+    const analysisReport = await analyzeBusinessWebsite(crawledPages, pageTypes);
 
     // Persisted so the on-demand implementation-snippet agent (lib/snippetAgent.ts)
     // can format output for this site's CMS later without re-crawling.

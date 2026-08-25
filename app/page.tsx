@@ -44,7 +44,7 @@ export default function HomePage() {
   const presets = [
     { name: 'The Fullerton Hotel Sydney', url: 'https://www.fullertonhotels.com/fullerton-hotel-sydney' },
     { name: 'Ace Hotel Sydney', url: 'https://acehotel.com/sydney' },
-    { name: 'Crown Towers Sydney', url: 'https://www.crownhotels.com.au/sydney/crown-towers' },
+    { name: 'In-N-Out Burger', url: 'https://www.in-n-out.com' },
   ];
 
   const startAudit = (query: string) => {
@@ -68,10 +68,10 @@ export default function HomePage() {
             Pilot
           </span>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white mb-3">
-            Visaible <span className="text-gradient-animated">AI Visibility Auditor</span>
+            Arthur AI <span className="text-gradient-animated">Visibility Auditor</span>
           </h1>
           <p className="text-slate-400 text-sm md:text-base max-w-lg mx-auto">
-            See how clearly ChatGPT, Perplexity &amp; Gemini can extract, trust, and recommend a hotel property —
+            See how clearly ChatGPT, Perplexity &amp; Gemini can extract, trust, and recommend your local business —
             and exactly what to fix.
           </p>
         </div>
@@ -89,7 +89,7 @@ export default function HomePage() {
               <Globe className="absolute left-4 top-3.5 h-5 w-5 text-slate-500" />
               <input
                 type="text"
-                placeholder="Enter a hotel website URL or name (e.g. https://www.examplehotel.com)"
+                placeholder="Enter a business website URL or name (e.g. https://www.examplebusiness.com)"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 autoFocus

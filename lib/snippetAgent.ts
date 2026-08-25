@@ -32,10 +32,10 @@ export interface SnippetContext {
 export async function generateImplementationSnippet(context: SnippetContext): Promise<string> {
   const cms = context.detectedCms === 'wordpress' ? 'wordpress' : 'unknown';
 
-  const systemPrompt = `You are a focused implementation agent for Visaible. Given ONE specific AI-visibility optimization suggestion for a hotel website, produce a single, complete, ready-to-paste code artifact that implements the fix.
+  const systemPrompt = `You are a focused implementation agent for Arthur AI. Given ONE specific AI-visibility optimization suggestion for a local business's website, produce a single, complete, ready-to-paste code artifact that implements the fix.
 
 Rules:
-- Ground every fact in the provided page content — never invent room names, amenities, prices, or numbers not present in the excerpts.
+- Ground every fact in the provided page content — never invent product names, services, prices, or numbers not present in the excerpts.
 - If the detected CMS is "wordpress", format the output for pasting into a WordPress Custom HTML block (plain HTML/JSON-LD, no PHP, no shortcodes).
 - If "unknown", produce plain HTML/JSON-LD.
 - Output ONLY the snippet itself — no markdown code fences, no explanation, no preamble.

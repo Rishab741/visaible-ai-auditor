@@ -35,15 +35,28 @@ const CATEGORY_WEIGHTS: CategoryScores = {
   STRUCTURAL_SIGNALS: 0.15,
 };
 
-// Schema.org's Accommodation/LodgingBusiness vocabulary is broader than it
-// first looks — a real audit hit this: a villa page tagged "HotelSuite" was
-// wrongly flagged as missing room schema because that type wasn't in this
-// list. Cover the realistic set rather than just the two most obvious names.
-const HOTEL_SCHEMA_TYPES = ['hotel', 'lodgingbusiness', 'resort', 'motel', 'bedandbreakfast', 'hostel'];
-const ROOM_SCHEMA_TYPES = ['room', 'hotelroom', 'suite', 'hotelsuite', 'apartment', 'accommodation'];
+// Schema.org's LocalBusiness vocabulary is broad and deep — a real audit hit
+// this: a villa page tagged "HotelSuite" was wrongly flagged as missing
+// offering schema because that type wasn't in this list. "localbusiness"
+// itself covers anything generically tagged that way; the rest are the
+// common named subtypes across hospitality, food, retail, and services so a
+// specifically-typed site doesn't need the generic umbrella type too.
+const LOCAL_BUSINESS_SCHEMA_TYPES = [
+  'localbusiness',
+  'hotel', 'lodgingbusiness', 'resort', 'motel', 'bedandbreakfast', 'hostel',
+  'restaurant', 'foodestablishment', 'cafeorcoffeeshop', 'bakery', 'bar',
+  'store', 'grocerystore', 'clothingstore', 'furniturestore',
+  'professionalservice', 'legalservice', 'financialservice', 'realestateagent', 'accountingservice',
+  'medicalbusiness', 'dentist', 'physician', 'healthandbeautybusiness', 'beautysalon', 'daySpa',
+  'homeandconstructionbusiness', 'electrician', 'plumber', 'automotivebusiness', 'autorepair',
+  'sportsactivitylocation', 'exercisegym', 'entertainmentbusiness',
+];
+// "Offering" generalizes hotel rooms to whatever a business actually sells or
+// provides — a menu item, a service, a product, a room.
+const OFFERING_SCHEMA_TYPES = ['product', 'service', 'offer', 'menuitem', 'room', 'hotelroom', 'suite', 'hotelsuite', 'apartment', 'accommodation'];
 const FAQ_SCHEMA_TYPES = ['faqpage'];
 
-const EXPECTED_PAGE_TYPES = ['ROOMS', 'AMENITIES', 'DINING', 'LOCATION', 'POLICIES'];
+const EXPECTED_PAGE_TYPES = ['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES', 'CONTACT'];
 
 const WALL_OF_TEXT_WORD_THRESHOLD = 180;
 
@@ -99,34 +112,34 @@ export function computeSiteSignals(pages: ExtractedPageData[], pageTypes: Map<st
     if (page.schemaJsonLd.length > 0) pagesWithSchema++;
     flattenJsonLdTypes(page.schemaJsonLd).forEach((t) => allTypes.add(t));
   }
-  const hasHotelSchema = HOTEL_SCHEMA_TYPES.some((t) => allTypes.has(t));
+  const hasLocalBusinessSchema = LOCAL_BUSINESS_SCHEMA_TYPES.some((t) => allTypes.has(t));
   const hasFaqSchema = FAQ_SCHEMA_TYPES.some((t) => allTypes.has(t));
-  const roomsPages = pages.filter((p) => pageTypes.get(p.url) === 'ROOMS');
-  const roomsWithSchema = roomsPages.filter((p) =>
-    flattenJsonLdTypes(p.schemaJsonLd).some((t) => ROOM_SCHEMA_TYPES.includes(t))
+  const offeringPages = pages.filter((p) => pageTypes.get(p.url) === 'OFFERINGS');
+  const offeringPagesWithSchema = offeringPages.filter((p) =>
+    flattenJsonLdTypes(p.schemaJsonLd).some((t) => OFFERING_SCHEMA_TYPES.includes(t))
   );
 
   const structuredDataScore = Math.round(
-    (hasHotelSchema ? 40 : 0) +
+    (hasLocalBusinessSchema ? 40 : 0) +
       (pages.length > 0 ? (pagesWithSchema / pages.length) * 30 : 0) +
-      (roomsPages.length > 0 ? (roomsWithSchema.length / roomsPages.length) * 20 : 20) +
+      (offeringPages.length > 0 ? (offeringPagesWithSchema.length / offeringPages.length) * 20 : 20) +
       (hasFaqSchema ? 10 : 0)
   );
 
-  if (!hasHotelSchema) {
+  if (!hasLocalBusinessSchema) {
     hardFindings.push({
       category: 'STRUCTURED_DATA',
       severity: 'HIGH',
-      fact: 'No Hotel or LodgingBusiness Schema.org JSON-LD structured data was found anywhere on the site.',
+      fact: 'No LocalBusiness-family Schema.org JSON-LD structured data (e.g. Hotel, Restaurant, Store, ProfessionalService) was found anywhere on the site.',
       affectedUrls: pages.slice(0, 1).map((p) => p.url),
     });
   }
-  if (roomsPages.length > 0 && roomsWithSchema.length < roomsPages.length) {
-    const missing = roomsPages.filter((p) => !roomsWithSchema.includes(p));
+  if (offeringPages.length > 0 && offeringPagesWithSchema.length < offeringPages.length) {
+    const missing = offeringPages.filter((p) => !offeringPagesWithSchema.includes(p));
     hardFindings.push({
       category: 'STRUCTURED_DATA',
       severity: 'MEDIUM',
-      fact: `${missing.length} of ${roomsPages.length} room pages are missing Room/HotelRoom Schema.org JSON-LD.`,
+      fact: `${missing.length} of ${offeringPages.length} offering pages are missing Product/Service/Offer Schema.org JSON-LD.`,
       affectedUrls: missing.map((p) => p.url),
     });
   }

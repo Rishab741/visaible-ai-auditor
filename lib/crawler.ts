@@ -97,7 +97,7 @@ async function fetchWithRetry(url: string, init: RequestInit, retries = 2): Prom
  * paragraph density) used by the rules-based scoring engine in lib/signals.ts.
  * Falls back to standard fetch + cheerio if Firecrawl API key is omitted.
  */
-export async function crawlHotelPage(targetUrl: string): Promise<ExtractedPageData> {
+export async function crawlBusinessPage(targetUrl: string): Promise<ExtractedPageData> {
   const firecrawlKey = process.env.FIRECRAWL_API_KEY;
 
   // Use Firecrawl if available for high-quality markdown extraction

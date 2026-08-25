@@ -4,22 +4,22 @@ import { ExtractedPageData } from './crawler';
 import { createCrawlPageTool, createSearchLinksTool } from './tools';
 import { stableSeed } from './utils';
 
-const EXPECTED_PAGE_TYPES = ['ROOMS', 'AMENITIES', 'DINING', 'LOCATION', 'POLICIES'];
+const EXPECTED_PAGE_TYPES = ['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES', 'CONTACT'];
 const MAX_INVESTIGATOR_STEPS = 8;
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  ROOMS: ['room', 'suite', 'accommodat'],
-  AMENITIES: ['amenit', 'facilit', 'wellness', 'spa', 'gym', 'pool'],
-  DINING: ['dining', 'restaurant', 'bar', 'menu', 'food', 'eat'],
-  LOCATION: ['location', 'direction', 'map', 'contact'],
-  POLICIES: ['polic', 'terms', 'faq', 'cancellation'],
+  OFFERINGS: ['room', 'suite', 'accommodat', 'menu', 'product', 'service', 'shop', 'store', 'amenit', 'facilit', 'dining', 'restaurant'],
+  ABOUT: ['about', 'story', 'who-we-are', 'team', 'history'],
+  LOCATION: ['location', 'direction', 'map', 'visit', 'hours'],
+  POLICIES: ['polic', 'terms', 'faq', 'cancellation', 'privacy', 'returns'],
+  CONTACT: ['contact', 'reach', 'email', 'phone'],
 };
 
 /**
  * Strictly additive gap-filling, run after static discovery+crawl (which is
  * unchanged and still crawls everything it finds). Only spends an LLM call at
- * all when a page category expected of a hotel site (rooms/amenities/dining/
- * location/policies) wasn't found by static discovery — then gives a bounded
+ * all when a page category expected of a local business site (offerings/
+ * about/location/policies/contact) wasn't found by static discovery — then gives a bounded
  * agent a few tool calls to try to locate and crawl one page for each gap.
  *
  * This can only add pages, never remove or skip ones static discovery already

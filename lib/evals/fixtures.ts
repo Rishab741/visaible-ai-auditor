@@ -16,7 +16,7 @@ function signals(overrides: Partial<PageStructuralSignals> = {}): PageStructural
 function page(overrides: Partial<ExtractedPageData> & { url: string }): ExtractedPageData {
   return {
     title: 'Test Page',
-    markdown: 'Some hotel content.',
+    markdown: 'Some business content.',
     schemaJsonLd: [],
     signals: signals(),
     cms: 'unknown',
@@ -24,12 +24,15 @@ function page(overrides: Partial<ExtractedPageData> & { url: string }): Extracte
   };
 }
 
-const HOTEL_SCHEMA = { '@context': 'https://schema.org', '@type': 'Hotel', name: 'Fixture Hotel', telephone: '+1-555-0100' };
-const ROOM_SCHEMA = { '@context': 'https://schema.org', '@type': 'Room', name: 'Deluxe Room' };
+// "Hotel" here is just one concrete, real Schema.org LocalBusiness subtype
+// used to exercise the fixtures — the scoring engine accepts the whole
+// LocalBusiness family (see lib/signals.ts LOCAL_BUSINESS_SCHEMA_TYPES).
+const LOCAL_BUSINESS_SCHEMA = { '@context': 'https://schema.org', '@type': 'Hotel', name: 'Fixture Business', telephone: '+1-555-0100' };
+const OFFERING_SCHEMA = { '@context': 'https://schema.org', '@type': 'Room', name: 'Deluxe Room' };
 const FAQ_SCHEMA = { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: [] };
 // Real-world regression case: a villa page tagged @type: ["HotelSuite", "Product"]
-// was wrongly flagged as missing room schema before HotelSuite was added to
-// ROOM_SCHEMA_TYPES — see lib/evals/signals.eval.ts.
+// was wrongly flagged as missing offering schema before HotelSuite was added to
+// OFFERING_SCHEMA_TYPES — see lib/evals/signals.eval.ts.
 const HOTEL_SUITE_SCHEMA = { '@context': 'https://schema.org', '@type': ['HotelSuite', 'Product'], name: 'Fixture Suite' };
 
 /** A well-built site: full schema, all page types present, clean structure, consistent facts. */
@@ -37,30 +40,30 @@ export const GOOD_SITE: { pages: ExtractedPageData[]; pageTypes: Map<string, str
   pages: [
     page({
       url: 'https://example.com/',
-      schemaJsonLd: [HOTEL_SCHEMA],
+      schemaJsonLd: [LOCAL_BUSINESS_SCHEMA],
       markdown: 'Welcome. Check-in: 3:00pm. Check-out: 11:00am.',
     }),
     page({
-      url: 'https://example.com/rooms',
-      schemaJsonLd: [ROOM_SCHEMA],
-      markdown: 'Our rooms. Check-in: 3:00pm.',
+      url: 'https://example.com/offerings',
+      schemaJsonLd: [OFFERING_SCHEMA],
+      markdown: 'Our rooms, amenities, and dining. Check-in: 3:00pm.',
     }),
-    page({ url: 'https://example.com/amenities', markdown: 'Pool, spa, gym. Check-in: 3:00pm.' }),
-    page({ url: 'https://example.com/dining', markdown: 'Restaurant open daily. Check-in: 3:00pm.' }),
+    page({ url: 'https://example.com/about', markdown: 'About us. Check-in: 3:00pm.' }),
     page({ url: 'https://example.com/location', markdown: 'Located downtown. Check-in: 3:00pm.' }),
     page({
       url: 'https://example.com/policies',
       schemaJsonLd: [FAQ_SCHEMA],
       markdown: 'Cancellation policy. Check-in: 3:00pm. Check-out: 11:00am.',
     }),
+    page({ url: 'https://example.com/contact', markdown: 'Contact us. Check-in: 3:00pm.' }),
   ],
   pageTypes: new Map([
     ['https://example.com/', 'HOMEPAGE'],
-    ['https://example.com/rooms', 'ROOMS'],
-    ['https://example.com/amenities', 'AMENITIES'],
-    ['https://example.com/dining', 'DINING'],
+    ['https://example.com/offerings', 'OFFERINGS'],
+    ['https://example.com/about', 'ABOUT'],
     ['https://example.com/location', 'LOCATION'],
     ['https://example.com/policies', 'POLICIES'],
+    ['https://example.com/contact', 'CONTACT'],
   ]),
 };
 
@@ -73,28 +76,28 @@ export const BARE_SITE: { pages: ExtractedPageData[]; pageTypes: Map<string, str
 /** Two pages disagreeing on check-in time — should trip the deterministic conflict detector. */
 export const CONFLICTING_FACTS_SITE: { pages: ExtractedPageData[]; pageTypes: Map<string, string> } = {
   pages: [
-    page({ url: 'https://conflict.example.com/', schemaJsonLd: [HOTEL_SCHEMA], markdown: 'Check-in: 3:00pm.' }),
+    page({ url: 'https://conflict.example.com/', schemaJsonLd: [LOCAL_BUSINESS_SCHEMA], markdown: 'Check-in: 3:00pm.' }),
     page({
-      url: 'https://conflict.example.com/rooms',
-      schemaJsonLd: [ROOM_SCHEMA],
+      url: 'https://conflict.example.com/offerings',
+      schemaJsonLd: [OFFERING_SCHEMA],
       markdown: 'Check-in: 4:00pm.',
     }),
   ],
   pageTypes: new Map([
     ['https://conflict.example.com/', 'HOMEPAGE'],
-    ['https://conflict.example.com/rooms', 'ROOMS'],
+    ['https://conflict.example.com/offerings', 'OFFERINGS'],
   ]),
 };
 
-/** A room page using @type: ["HotelSuite", "Product"] instead of Room/HotelRoom — must still count as room schema. */
+/** An offering page using @type: ["HotelSuite", "Product"] instead of Room/Product — must still count as offering schema. */
 export const HOTEL_SUITE_SITE: { pages: ExtractedPageData[]; pageTypes: Map<string, string> } = {
   pages: [
-    page({ url: 'https://suite.example.com/', schemaJsonLd: [HOTEL_SCHEMA] }),
-    page({ url: 'https://suite.example.com/rooms', schemaJsonLd: [HOTEL_SUITE_SCHEMA] }),
+    page({ url: 'https://suite.example.com/', schemaJsonLd: [LOCAL_BUSINESS_SCHEMA] }),
+    page({ url: 'https://suite.example.com/offerings', schemaJsonLd: [HOTEL_SUITE_SCHEMA] }),
   ],
   pageTypes: new Map([
     ['https://suite.example.com/', 'HOMEPAGE'],
-    ['https://suite.example.com/rooms', 'ROOMS'],
+    ['https://suite.example.com/offerings', 'OFFERINGS'],
   ]),
 };
 
@@ -103,7 +106,7 @@ export const WALL_OF_TEXT_SITE: { pages: ExtractedPageData[]; pageTypes: Map<str
   pages: [
     page({
       url: 'https://dense.example.com/',
-      schemaJsonLd: [HOTEL_SCHEMA],
+      schemaJsonLd: [LOCAL_BUSINESS_SCHEMA],
       markdown: 'Check-in: 3:00pm. Check-out: 11:00am.',
       signals: signals({ h1Count: 1, listCount: 0, tableCount: 0, longestBlockWords: 250 }),
     }),

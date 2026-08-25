@@ -45,8 +45,8 @@ const AdditionalSuggestionSchema = z.object({
 // exist here, patched with the raw fact when a write-up was missing).
 function buildAnalysisReportSchema(hardFindingCount: number) {
   return z.object({
-    hotelName: z.string().describe('Name of the hotel extracted from pages'),
-    summary: z.string().describe('A 2-3 sentence executive summary of the hotel website AI-readiness'),
+    hotelName: z.string().describe('Name of the business extracted from pages'),
+    summary: z.string().describe('A 2-3 sentence executive summary of the business website AI-readiness'),
     hardFindingWriteups: z
       .array(HardFindingWriteupSchema)
       .length(hardFindingCount)
@@ -81,7 +81,10 @@ function normalizeForMatch(s: string): string {
 }
 
 /**
- * Analyzes multiple crawled hotel pages to identify issues degrading AI engine visibility.
+ * Analyzes multiple crawled pages of a local business's website to identify
+ * issues degrading AI engine visibility. Works across verticals — hotels,
+ * restaurants, retail, professional services — since nothing here is
+ * hospitality-specific beyond the shared LocalBusiness schema vocabulary.
  *
  * Scoring is deterministic: lib/signals.ts computes the 5 category scores, the
  * overall score, and a list of verified "hard findings" purely from code (schema
@@ -91,7 +94,7 @@ function normalizeForMatch(s: string): string {
  * finding in plain language, plus flag genuinely qualitative issues (marketing
  * fluff, mixed-intent pages) that no rule can detect.
  */
-export async function analyzeHotelWebsite(
+export async function analyzeBusinessWebsite(
   pages: ExtractedPageData[],
   pageTypes: Map<string, string>
 ): Promise<AnalysisReport> {
@@ -107,8 +110,8 @@ export async function analyzeHotelWebsite(
   }));
 
   const systemPrompt = `
-You are an expert AI Visibility and GEO (Generative Engine Optimization) Engineer for Visaible.
-Your mission is to audit hotel websites for AI Answer Engine readability (ChatGPT, Perplexity, Google Gemini, Apple Intelligence).
+You are an expert AI Visibility and GEO (Generative Engine Optimization) Engineer for Arthur AI.
+Your mission is to audit local business websites — hotels, restaurants, retail shops, professional services, and any other local business — for AI Answer Engine readability (ChatGPT, Perplexity, Google Gemini, Apple Intelligence).
 
 A deterministic rules engine has already scored this site and identified a fixed list of verified findings — schema gaps, missing page categories, structural issues, and cross-page factual conflicts. These are facts, not opinions: do not contradict, soften, or embellish them.
 
