@@ -10,4 +10,4 @@
  * pre-versioning scans ended up stuck serving categoryScores: null earlier
  * in this project's history).
  */
-export const PIPELINE_VERSION = 4;
+export const PIPELINE_VERSION = 5;

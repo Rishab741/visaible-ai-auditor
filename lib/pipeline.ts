@@ -27,11 +27,15 @@ function isUrlLike(input: string): boolean {
 function classifyPageType(url: string, targetUrl: string): string {
   const path = new URL(url).pathname.toLowerCase();
   if (url === targetUrl || path === '/' || path === '') return 'HOMEPAGE';
-  if (/room|suite|accommodat|menu|product|service|shop|store|pricing|amenit|facilit|wellness|spa|gym|pool|dining|restaurant|bar|food/.test(path)) return 'OFFERINGS';
+  if (/room|suite|accommodat|menu|eat|drink|food|product|service|shop|store|pricing|book|reserv|amenit|facilit|wellness|spa|gym|pool|dining|restaurant|bar/.test(path)) return 'OFFERINGS';
   if (/about|our-story|who-we-are|team|history/.test(path)) return 'ABOUT';
-  if (/location|direction|map|visit|hours/.test(path)) return 'LOCATION';
+  // Contact info is folded into LOCATION rather than treated as its own
+  // required category — most local business sites put contact details on a
+  // location/visit-us page (or the homepage/footer) instead of a dedicated
+  // /contact URL, and requiring one made PAGE_COVERAGE gaps (and the
+  // gap-filling agent they trigger) fire on nearly every real site.
+  if (/location|direction|map|visit|hours|contact|reach|enquir|find-us/.test(path)) return 'LOCATION';
   if (/polic|terms|faq|cancellation|privacy|returns/.test(path)) return 'POLICIES';
-  if (/contact/.test(path)) return 'CONTACT';
   return 'GENERAL';
 }
 

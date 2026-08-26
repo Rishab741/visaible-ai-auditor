@@ -56,7 +56,7 @@ const LOCAL_BUSINESS_SCHEMA_TYPES = [
 const OFFERING_SCHEMA_TYPES = ['product', 'service', 'offer', 'menuitem', 'room', 'hotelroom', 'suite', 'hotelsuite', 'apartment', 'accommodation'];
 const FAQ_SCHEMA_TYPES = ['faqpage'];
 
-const EXPECTED_PAGE_TYPES = ['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES', 'CONTACT'];
+const EXPECTED_PAGE_TYPES = ['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES'];
 
 const WALL_OF_TEXT_WORD_THRESHOLD = 180;
 
