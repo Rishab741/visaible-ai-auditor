@@ -94,6 +94,14 @@ export function prioritizeForCrawl(discoveredUrls: string[], targetUrl: string, 
  */
 export async function runAuditScan(rootQuery: string, options: { forceRefresh?: boolean } = {}) {
   const trimmedInput = rootQuery.trim();
+  const t0 = Date.now();
+  // Phase-by-phase timing, deliberately logged rather than inferred after
+  // the fact — a Vercel Runtime Timeout kills the process with no stack
+  // trace and no chance for our own code to report what it was doing, so
+  // the only way to know which phase actually ate the 60s on a given run is
+  // to have already been printing it as we went. Every log line is
+  // grep-able by "[audit]" and, once the scan record exists, by its id.
+  const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
 
   // Accept either a direct URL/domain, or a free-text business name/description —
   // the latter is resolved to the business's official site via search-grounded AI lookup.
@@ -102,6 +110,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
       ? trimmedInput
       : `https://${trimmedInput}`
     : await resolveBusinessWebsite(trimmedInput);
+  console.log(`[audit] resolve done at ${elapsed()} -> ${resolvedUrl}`);
 
   // Canonicalize so different phrasings of the same search ("Ace Hotel Sydney"
   // vs. the resolved URL with/without a trailing slash) converge on one cache key.
@@ -119,6 +128,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
       include: { pages: true, suggestions: true },
     });
     if (cachedScan) {
+      console.log(`[audit] cache hit at ${elapsed()} for ${targetUrl} -- no pipeline work done`);
       return { ...cachedScan, fromCache: true };
     }
   }
@@ -131,6 +141,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
       pipelineVersion: PIPELINE_VERSION,
     },
   });
+  console.log(`[audit ${scan.id}] cache miss, starting fresh pipeline for ${targetUrl} at ${elapsed()}`);
 
   try {
     // 2. Discover every same-origin page/route first, then pick which of
@@ -139,6 +150,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
     // getting truncated away just because of where it landed in discovery
     // order).
     const discoveredUrls = await discoverPages(targetUrl);
+    console.log(`[audit ${scan.id}] discovery done at ${elapsed()} -- found ${discoveredUrls.length} URLs`);
 
     if (discoveredUrls.length === 0) {
       throw new Error('Could not discover any pages on the target website.');
@@ -148,6 +160,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
 
     const crawledPages: ExtractedPageData[] = [];
     const pageTypes = new Map<string, string>();
+    let crawlFailures = 0;
 
     for (let i = 0; i < urlsToCrawl.length; i += CRAWL_CONCURRENCY) {
       const batch = urlsToCrawl.slice(i, i + CRAWL_CONCURRENCY);
@@ -174,11 +187,16 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
             }
           } catch (err) {
             // Continue if a specific page does not exist (404) or fails to crawl
-            console.warn(`Page ${url} not found or failed to crawl:`, err);
+            crawlFailures++;
+            console.warn(`[audit ${scan.id}] page failed to crawl (${url}) at ${elapsed()}:`, err);
           }
         })
       );
+      console.log(`[audit ${scan.id}] crawl batch ${Math.floor(i / CRAWL_CONCURRENCY) + 1}/${Math.ceil(urlsToCrawl.length / CRAWL_CONCURRENCY)} done at ${elapsed()}`);
     }
+    console.log(
+      `[audit ${scan.id}] crawl phase done at ${elapsed()} -- ${crawledPages.length} pages crawled, ${crawlFailures} failed, present categories: ${Array.from(new Set(pageTypes.values())).join(', ')}`
+    );
 
     if (crawledPages.length === 0) {
       throw new Error('Could not crawl any accessible pages from the target URL.');
@@ -192,6 +210,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
       presentPageTypes: new Set(pageTypes.values()),
       alreadyCrawledUrls: new Set(crawledPages.map((p) => p.url)),
     });
+    console.log(`[audit ${scan.id}] gap-filling investigator done at ${elapsed()} -- ${bonusPages.length} bonus pages`);
 
     for (const pageData of bonusPages) {
       crawledPages.push(pageData);
@@ -219,6 +238,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
     // 4. Run Multi-Pass AI Analysis (category/overall scores are computed
     // deterministically from the crawl — see lib/signals.ts)
     const analysisReport = await analyzeBusinessWebsite(crawledPages, pageTypes);
+    console.log(`[audit ${scan.id}] LLM analysis done at ${elapsed()} -- ${analysisReport.suggestions.length} suggestions`);
 
     // Persisted so the on-demand implementation-snippet agent (lib/snippetAgent.ts)
     // can format output for this site's CMS later without re-crawling.
@@ -258,8 +278,10 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
       },
     });
 
+    console.log(`[audit ${scan.id}] COMPLETED at ${elapsed()}`);
     return { ...completedScan, fromCache: false };
   } catch (error) {
+    console.error(`[audit ${scan.id}] FAILED at ${elapsed()}:`, error);
     await prisma.auditScan.update({
       where: { id: scan.id },
       data: { status: 'FAILED' },
