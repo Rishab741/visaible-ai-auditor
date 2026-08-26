@@ -6,7 +6,10 @@ import { resolveBusinessWebsite } from './resolver';
 import { prisma } from './prisma';
 import { PIPELINE_VERSION } from './version';
 
-const CRAWL_CONCURRENCY = 5;
+// Raised alongside MAX_PAGES's reduction in lib/discovery.ts — halving the
+// batch count roughly halves crawl-phase wall-clock, which is what actually
+// needs to shrink to fit inside Vercel's 60s Hobby-plan ceiling.
+const CRAWL_CONCURRENCY = 10;
 // How long a completed scan stays valid as a cached result for the same target
 // URL. Crawling and LLM analysis both introduce variance (live page content can
 // change, and the model samples non-deterministically) — serving the same

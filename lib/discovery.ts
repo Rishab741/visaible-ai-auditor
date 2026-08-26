@@ -3,7 +3,12 @@ import * as cheerio from 'cheerio';
 // Prototype-scale cap: enough to cover a typical small/independent local
 // business site's marketing pages without a single audit crawling a huge
 // site (e.g. a chain site with thousands of blog posts) for minutes on end.
-const MAX_PAGES = 40;
+// Bounded tightly by Vercel's Hobby-plan 60s function ceiling (see
+// app/api/audit/route.ts) — crawling is the dominant cost, so this cap
+// (paired with CRAWL_CONCURRENCY in lib/pipeline.ts) is what keeps a large
+// site's audit finishing inside that window instead of getting hard-killed
+// mid-crawl.
+const MAX_PAGES = 18;
 const MAX_BFS_DEPTH = 3;
 const DISCOVERY_CONCURRENCY = 8;
 
