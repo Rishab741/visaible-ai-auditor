@@ -42,8 +42,23 @@ export default function RunningClient() {
       body: JSON.stringify({ url: q, forceRefresh }),
     })
       .then(async (res) => {
+        // The API route always returns JSON, even on its own errors — but a
+        // failure outside the route (a platform/proxy timeout, the dev
+        // server restarting mid-request) can hand back plain text or an
+        // HTML error page instead. Never call res.json() on that blindly:
+        // check res.ok first, and degrade to a readable message instead of
+        // letting a raw "Unexpected token..." parse error reach the user.
+        if (!res.ok) {
+          let message = `Audit failed (HTTP ${res.status})`;
+          try {
+            const errJson = await res.json();
+            if (errJson?.error) message = errJson.error;
+          } catch {
+            // Body wasn't JSON — keep the generic status-based message.
+          }
+          throw new Error(message);
+        }
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Audit failed');
         router.replace(`/audit/${data.id}`);
       })
       .catch((err: unknown) => {

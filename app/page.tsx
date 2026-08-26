@@ -62,7 +62,7 @@ export default function HomePage() {
 
   useEffect(() => {
     fetch('/api/audit')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
         if (Array.isArray(data)) setRecentAudits(data);
       })

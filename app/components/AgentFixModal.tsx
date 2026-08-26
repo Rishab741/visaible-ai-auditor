@@ -100,8 +100,22 @@ export default function AgentFixModal({
 
     fetch(`/api/audit/${scanId}/snippets`, { method: 'POST' })
       .then(async (res) => {
+        // Bulk snippet generation can run long (one LLM call per pending
+        // suggestion) — long enough to hit a platform/proxy timeout whose
+        // response isn't JSON at all. Check res.ok before trusting the body
+        // is parseable, so a non-JSON response degrades to a clear message
+        // instead of a raw "Unexpected token..." parse error.
+        if (!res.ok) {
+          let message = `${AGENT_NAME} couldn't generate these fixes (HTTP ${res.status}).`;
+          try {
+            const errJson = await res.json();
+            if (errJson?.error) message = errJson.error;
+          } catch {
+            // Body wasn't JSON — keep the generic status-based message.
+          }
+          throw new Error(message);
+        }
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || `${AGENT_NAME} couldn't generate these fixes.`);
         const results = json.results as AgentFixResult[];
 
         setItemStatus((prev) => {
