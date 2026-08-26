@@ -157,10 +157,12 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
     }
 
     const urlsToCrawl = prioritizeForCrawl(discoveredUrls, targetUrl, MAX_CRAWL_PAGES);
+    console.log(`[audit ${scan.id}] crawl budget: attempting ${urlsToCrawl.length} of ${discoveredUrls.length} discovered URLs`);
 
     const crawledPages: ExtractedPageData[] = [];
     const pageTypes = new Map<string, string>();
     let crawlFailures = 0;
+    let thinContentDrops = 0;
 
     for (let i = 0; i < urlsToCrawl.length; i += CRAWL_CONCURRENCY) {
       const batch = urlsToCrawl.slice(i, i + CRAWL_CONCURRENCY);
@@ -184,6 +186,13 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
                   rawJsonLd: JSON.stringify(pageData.schemaJsonLd),
                 },
               });
+            } else {
+              // Crawled without throwing, but too thin to be useful (e.g. a
+              // JS-rendered page Firecrawl couldn't extract, or a redirect
+              // to an empty page) — previously silent: no log, no count,
+              // just vanished from the final page total with no trace.
+              thinContentDrops++;
+              console.warn(`[audit ${scan.id}] page crawled but too thin to use (${url}, ${pageData.markdown?.length ?? 0} chars) at ${elapsed()}`);
             }
           } catch (err) {
             // Continue if a specific page does not exist (404) or fails to crawl
@@ -195,7 +204,7 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
       console.log(`[audit ${scan.id}] crawl batch ${Math.floor(i / CRAWL_CONCURRENCY) + 1}/${Math.ceil(urlsToCrawl.length / CRAWL_CONCURRENCY)} done at ${elapsed()}`);
     }
     console.log(
-      `[audit ${scan.id}] crawl phase done at ${elapsed()} -- ${crawledPages.length} pages crawled, ${crawlFailures} failed, present categories: ${Array.from(new Set(pageTypes.values())).join(', ')}`
+      `[audit ${scan.id}] crawl phase done at ${elapsed()} -- ${crawledPages.length} of ${urlsToCrawl.length} attempted pages usable (${crawlFailures} failed, ${thinContentDrops} too thin), present categories: ${Array.from(new Set(pageTypes.values())).join(', ')}`
     );
 
     if (crawledPages.length === 0) {
