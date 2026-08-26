@@ -3,12 +3,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ChevronDown, Copy, Check, Code2, MinusCircle, ShieldCheck, Sparkles } from 'lucide-react';
 import type { Suggestion } from './AuditReport';
+import { parseAffectedUrls } from './suggestionUtils';
 
 const SEVERITY_STYLES: Record<Suggestion['severity'], string> = {
   HIGH: 'bg-rose-950/70 text-rose-400 border border-rose-800/70',
   MEDIUM: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
   LOW: 'bg-cyan-950/70 text-cyan-400 border border-cyan-800/70',
 };
+
+// Shared between the header row (AuditReport) and every data row here, so
+// columns line up exactly regardless of content — the standard CSS-grid
+// table trick, without committing to real <table> markup (which can't host
+// a per-row expand/collapse panel cleanly).
+export const GRID_COLS = 'grid-cols-[84px_minmax(0,1fr)_170px_170px_130px_44px]';
 
 export default function SuggestionCard({
   item,
@@ -18,6 +25,10 @@ export default function SuggestionCard({
   onToggleOpen,
   onCopy,
   animationDelay,
+  pageTypeByUrl,
+  pageTypeLabels,
+  targetUrl,
+  isLast,
 }: {
   item: Suggestion;
   isOpen: boolean;
@@ -26,6 +37,10 @@ export default function SuggestionCard({
   onToggleOpen: () => void;
   onCopy: (text: string, id: string) => void;
   animationDelay: string;
+  pageTypeByUrl: Map<string, string>;
+  pageTypeLabels: Record<string, string>;
+  targetUrl: string;
+  isLast: boolean;
 }) {
   // Suggested Fix and Implementation Snippet cover the same ground (one is
   // prose, one is code) — showing both at once is what made cards balloon
@@ -41,64 +56,79 @@ export default function SuggestionCard({
     }
   }, [item.implementationSnippet]);
 
-  const affectedUrls: string[] = (() => {
-    try {
-      return JSON.parse(item.affectedUrls);
-    } catch {
-      return [item.affectedUrls];
-    }
-  })();
+  const affectedUrls = parseAffectedUrls(item.affectedUrls);
+  const relativePath = (u: string) => u.replace(targetUrl, '') || '/';
 
   const showingSnippet = tab === 'snippet' && !!item.implementationSnippet;
   const copyId = showingSnippet ? `${item.id}-snippet` : item.id;
   const copyText = showingSnippet ? item.implementationSnippet! : item.suggestedFix;
+  const confidencePct = Math.round(item.confidenceScore * 100);
 
   return (
-    <div
-      className="glass-panel rounded-2xl overflow-hidden hover:border-white/20 hover:shadow-lg hover:shadow-black/20 transition-all animate-fade-in-up"
-      style={{ animationDelay }}
-    >
-      <button type="button" onClick={onToggleOpen} className="w-full text-left p-5 cursor-pointer">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-xs px-2 py-0.5 rounded font-mono font-bold uppercase ${SEVERITY_STYLES[item.severity]}`}>{item.severity}</span>
-            <span className="text-xs font-mono text-slate-400 bg-white/5 px-2 py-0.5 rounded">{item.category.replace('_', ' ')}</span>
-            {item.confidenceScore === 1 ? (
-              <span
-                title="Verified directly from crawled schema/content by code — not a model judgment"
-                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-cyan-950/70 text-cyan-400 border border-cyan-800/70 flex items-center gap-1"
-              >
-                <ShieldCheck className="h-2.5 w-2.5" /> Verified
-              </span>
-            ) : (
-              <span
-                title="Identified by AI reasoning across the crawled content, grounded and quote-checked against the crawl"
-                className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-violet-950/70 text-violet-400 border border-violet-800/70 flex items-center gap-1"
-              >
-                <Sparkles className="h-2.5 w-2.5" /> AI Assessed
-              </span>
-            )}
-            {item.implementationSnippet && (
-              <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-cyan-950/70 text-cyan-400 border border-cyan-800/70 flex items-center gap-1">
-                <Code2 className="h-2.5 w-2.5" /> Fix Ready
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs font-mono text-slate-500">{(item.confidenceScore * 100).toFixed(0)}%</span>
-            <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-          </div>
-        </div>
+    <div className={!isLast ? 'border-b border-white/5' : ''} style={{ animationDelay }}>
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        className={`w-full grid ${GRID_COLS} gap-3 items-center px-4 py-3 text-left cursor-pointer hover:bg-white/[0.03] transition-colors animate-fade-in-up`}
+      >
+        <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase text-center ${SEVERITY_STYLES[item.severity]}`}>{item.severity}</span>
 
-        <h4 className="text-sm font-semibold text-slate-100 flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 text-violet-400 shrink-0 mt-0.5" />
-          {item.issue}
-        </h4>
+        <span className="min-w-0">
+          <span className="flex items-start gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-violet-400 shrink-0 mt-0.5" />
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-slate-100 truncate" title={item.issue}>
+                {item.issue}
+              </span>
+              {affectedUrls.length > 0 && (
+                <span className="block text-[11px] text-slate-500 truncate font-mono">
+                  {affectedUrls.length === 1 ? `on ${relativePath(affectedUrls[0])}` : `on ${affectedUrls.length} pages`}
+                </span>
+              )}
+            </span>
+          </span>
+        </span>
+
+        <span className="text-xs font-mono text-slate-400 truncate">{item.category.replace(/_/g, ' ')}</span>
+
+        <span className="flex flex-col items-start gap-1">
+          {item.confidenceScore === 1 ? (
+            <span
+              title="Verified directly from crawled schema/content by code — not a model judgment"
+              className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-cyan-950/70 text-cyan-400 border border-cyan-800/70 flex items-center gap-1 whitespace-nowrap"
+            >
+              <ShieldCheck className="h-2.5 w-2.5" /> Verified
+            </span>
+          ) : (
+            <span
+              title="Identified by AI reasoning across the crawled content, grounded and quote-checked against the crawl"
+              className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-violet-950/70 text-violet-400 border border-violet-800/70 flex items-center gap-1 whitespace-nowrap"
+            >
+              <Sparkles className="h-2.5 w-2.5" /> AI Assessed
+            </span>
+          )}
+          {item.implementationSnippet && (
+            <span className="text-[10px] px-2 py-0.5 rounded font-mono font-bold uppercase bg-cyan-950/70 text-cyan-400 border border-cyan-800/70 flex items-center gap-1 whitespace-nowrap">
+              <Code2 className="h-2.5 w-2.5" /> Fix Ready
+            </span>
+          )}
+        </span>
+
+        <span className="flex items-center gap-2">
+          <span className="text-xs font-mono text-slate-400 tabular-nums w-8 shrink-0">{confidencePct}%</span>
+          <span className="h-1.5 flex-1 rounded-full bg-slate-800 overflow-hidden">
+            <span className="block h-full rounded-full bg-cyan-400" style={{ width: `${confidencePct}%` }} />
+          </span>
+        </span>
+
+        <span className="flex justify-end">
+          <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </span>
       </button>
 
       <div className={`accordion-rows ${isOpen ? 'is-open' : ''}`}>
         <div className="accordion-inner">
-          <div className="space-y-3 px-5 pb-5 pt-1 text-sm">
+          <div className="space-y-3 px-4 pb-5 pt-1 text-sm">
             <div className="bg-slate-950/50 p-3.5 rounded-lg border border-white/5">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Why this degrades AI Engine Visibility</p>
               <p className="text-slate-300 leading-relaxed">{item.impactReason}</p>
@@ -164,11 +194,15 @@ export default function SuggestionCard({
             {affectedUrls.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 <span className="text-xs text-slate-500">Origin:</span>
-                {affectedUrls.map((u, i) => (
-                  <span key={i} className="text-xs text-slate-400 font-mono bg-white/5 px-2 py-0.5 rounded">
-                    {u}
-                  </span>
-                ))}
+                {affectedUrls.map((u, i) => {
+                  const type = pageTypeByUrl.get(u);
+                  return (
+                    <span key={i} className="text-xs text-slate-400 font-mono bg-white/5 px-2 py-0.5 rounded flex items-center gap-1.5">
+                      {relativePath(u)}
+                      {type && <span className="text-[10px] text-cyan-400/80 uppercase tracking-wide">{pageTypeLabels[type] ?? type}</span>}
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>

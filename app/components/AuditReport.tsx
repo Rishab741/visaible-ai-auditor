@@ -18,9 +18,11 @@ import {
   Bot,
   ChevronsDownUp,
   ChevronsUpDown,
+  FilterX,
 } from 'lucide-react';
 import AgentFixModal, { AGENT_NAME, type AgentFixResult } from './AgentFixModal';
-import SuggestionCard from './SuggestionCard';
+import SuggestionCard, { GRID_COLS } from './SuggestionCard';
+import { parseAffectedUrls } from './suggestionUtils';
 
 export interface Suggestion {
   id: string;
@@ -82,6 +84,21 @@ const CATEGORIES = [
   { key: 'PAGE_COVERAGE', label: 'Coverage & Gaps' },
   { key: 'STRUCTURAL_SIGNALS', label: 'Structural Extraction' },
 ];
+
+const CATEGORY_DESCRIPTIONS: Record<string, string> = {
+  ALL: 'Every finding, across all five audit categories.',
+  CONTENT_CLARITY: 'Whether facts (hours, prices, policies) are stated as plain extractable text, not buried in images or vague copy.',
+  INTERNAL_CONSISTENCY: 'Whether the same fact (hours, address, pricing) agrees across every page it appears on.',
+  STRUCTURED_DATA: 'Presence and completeness of Schema.org JSON-LD — LocalBusiness type, offerings, FAQ.',
+  PAGE_COVERAGE: 'Whether the expected page categories (offerings, about, location, policies, contact) actually exist.',
+  STRUCTURAL_SIGNALS: 'Heading structure, list/table usage, and paragraph density that make a page machine-parseable.',
+};
+
+const SEVERITY_DESCRIPTIONS: Record<Suggestion['severity'], string> = {
+  HIGH: 'Actively blocks AI engines from extracting or trusting this fact.',
+  MEDIUM: "Degrades confidence or completeness, but doesn't block extraction outright.",
+  LOW: "Minor polish — unlikely to change whether an AI engine cites this business.",
+};
 
 function scoreBarClass(score: number): string {
   return score >= 75 ? 'bg-cyan-400' : score >= 50 ? 'bg-violet-400' : 'bg-rose-400';
@@ -204,8 +221,12 @@ function CategoryScoreBar({ label, score, revealed, delayMs }: { label: string; 
   );
 }
 
+const ALL_SEVERITIES: Suggestion['severity'][] = ['HIGH', 'MEDIUM', 'LOW'];
+
 export default function AuditReport({ data, onRefresh, refreshing }: { data: AuditScanResult; onRefresh: () => void; refreshing: boolean }) {
   const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [activeSeverities, setActiveSeverities] = useState<Set<Suggestion['severity']>>(new Set(ALL_SEVERITIES));
+  const [selectedPageUrl, setSelectedPageUrl] = useState('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   // Cards default collapsed — a report with a dozen fully-expanded cards
   // (each showing why/fix/snippet/origin) reads as an unscannable wall of
@@ -252,6 +273,22 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
   const collapseAll = () => setCollapsedIds(new Set(suggestions.map((s) => s.id)));
   const allExpanded = collapsedIds.size === 0;
 
+  const toggleSeverity = (sev: Suggestion['severity']) => {
+    setActiveSeverities((prev) => {
+      const next = new Set(prev);
+      if (next.has(sev)) next.delete(sev);
+      else next.add(sev);
+      return next;
+    });
+  };
+
+  const isFiltered = selectedCategory !== 'ALL' || activeSeverities.size < 3 || selectedPageUrl !== 'ALL';
+  const clearFilters = () => {
+    setSelectedCategory('ALL');
+    setActiveSeverities(new Set(ALL_SEVERITIES));
+    setSelectedPageUrl('ALL');
+  };
+
   const pendingTargets = suggestions
     .filter((s) => !s.implementationSnippet && !notApplicableIds.has(s.id))
     .map((s) => ({ id: s.id, issue: s.issue }));
@@ -284,6 +321,8 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
 
   const filteredSuggestions = suggestions
     .filter((s) => (selectedCategory === 'ALL' ? true : s.category === selectedCategory))
+    .filter((s) => activeSeverities.has(s.severity))
+    .filter((s) => (selectedPageUrl === 'ALL' ? true : parseAffectedUrls(s.affectedUrls).includes(selectedPageUrl)))
     .slice()
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 
@@ -307,6 +346,17 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
     pagesByType.push({ type, label: PAGE_TYPE_LABELS[type] ?? type, pages });
   }
   pagesByType.sort((a, b) => a.label.localeCompare(b.label));
+
+  // Lets the suggestion table and each row's Origin chips show a page's
+  // category (Offerings, Location, ...) alongside its URL without a lookup.
+  const pageTypeByUrl = new Map(data.pages.map((p) => [p.url, p.pageType]));
+  const pageFilterOptions = data.pages
+    .slice()
+    .sort((a, b) => a.url.localeCompare(b.url))
+    .map((p) => ({
+      url: p.url,
+      label: `${p.url.replace(data.targetUrl, '') || '/'} · ${PAGE_TYPE_LABELS[p.pageType] ?? p.pageType}`,
+    }));
 
   return (
     <section ref={resultsRef} className="max-w-6xl mx-auto space-y-8 scroll-mt-6">
@@ -465,15 +515,35 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
         />
       )}
 
-      {/* Severity Breakdown + Category Filter Pills + Export */}
+      {/* Filters: severity toggles, category pills, page filter + Export */}
       <div className="space-y-3 pt-2 border-t border-white/10 animate-fade-in-up" style={{ animationDelay: '120ms' }}>
         <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
           <div className="flex flex-wrap items-center gap-2">
-            {(['HIGH', 'MEDIUM', 'LOW'] as const).map((sev) => (
-              <span key={sev} className={`text-xs px-2.5 py-1 rounded-full font-mono font-semibold ${SEVERITY_STYLES[sev]}`}>
-                {severityCounts[sev]} {sev}
-              </span>
-            ))}
+            {ALL_SEVERITIES.map((sev) => {
+              const isActive = activeSeverities.has(sev);
+              return (
+                <button
+                  key={sev}
+                  type="button"
+                  onClick={() => toggleSeverity(sev)}
+                  title={SEVERITY_DESCRIPTIONS[sev]}
+                  className={`text-xs px-2.5 py-1 rounded-full font-mono font-semibold border transition-opacity ${SEVERITY_STYLES[sev]} ${
+                    isActive ? 'opacity-100' : 'opacity-35 hover:opacity-70'
+                  }`}
+                >
+                  {severityCounts[sev]} {sev}
+                </button>
+              );
+            })}
+            {isFiltered && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-white transition-colors ml-1"
+              >
+                <FilterX className="h-3.5 w-3.5" /> Clear filters
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -508,49 +578,96 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.key}
-              onClick={() => setSelectedCategory(cat.key)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                selectedCategory === cat.key
-                  ? 'bg-gradient-to-r from-cyan-500 to-violet-500 text-white shadow-md shadow-cyan-900/30'
-                  : 'bg-white/5 text-slate-400 hover:bg-white/10 border border-white/10'
-              }`}
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat.key}
+                onClick={() => setSelectedCategory(cat.key)}
+                title={CATEGORY_DESCRIPTIONS[cat.key]}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  selectedCategory === cat.key
+                    ? 'bg-gradient-to-r from-cyan-500 to-violet-500 text-white shadow-md shadow-cyan-900/30'
+                    : 'bg-white/5 text-slate-400 hover:bg-white/10 border border-white/10'
+                }`}
+              >
+                {cat.label}
+                {cat.key !== 'ALL' && <span className="ml-1.5 opacity-60">{categoryCounts[cat.key] || 0}</span>}
+              </button>
+            ))}
+          </div>
+
+          {pageFilterOptions.length > 1 && (
+            <select
+              value={selectedPageUrl}
+              onChange={(e) => setSelectedPageUrl(e.target.value)}
+              title="Filter suggestions down to a single scanned page"
+              className="bg-white/5 border border-white/10 text-slate-300 text-xs pl-3 pr-7 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 cursor-pointer max-w-[220px]"
             >
-              {cat.label}
-              {cat.key !== 'ALL' && <span className="ml-1.5 opacity-60">{categoryCounts[cat.key] || 0}</span>}
-            </button>
-          ))}
+              <option value="ALL" className="bg-slate-900">
+                All Pages ({data.pages.length})
+              </option>
+              {pageFilterOptions.map((p) => (
+                <option key={p.url} value={p.url} className="bg-slate-900">
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
-      {/* Suggestion Cards, grouped by category, individually collapsible */}
+      {/* Suggestions, grouped by category, rendered as an aligned table with per-row expand */}
       <div className="space-y-8">
         {filteredSuggestions.length === 0 ? (
-          <div className="glass-panel p-8 text-center rounded-2xl text-slate-500">No issues detected under this category.</div>
+          <div className="glass-panel p-8 text-center rounded-2xl text-slate-500">
+            No issues match the current filters.
+            {isFiltered && (
+              <button type="button" onClick={clearFilters} className="block mx-auto mt-2 text-xs text-cyan-400 hover:text-cyan-300">
+                Clear filters
+              </button>
+            )}
+          </div>
         ) : (
           groupedSuggestions.map((group) => (
-            <div key={group.key} className="space-y-4">
+            <div key={group.key} className="space-y-3">
               {selectedCategory === 'ALL' && (
                 <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
                   {group.label}
                   <span className="text-xs font-mono text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">{group.items.length}</span>
                 </h3>
               )}
-              {group.items.map((item, idx) => (
-                <SuggestionCard
-                  key={item.id}
-                  item={item}
-                  isOpen={!collapsedIds.has(item.id)}
-                  isNotApplicable={notApplicableIds.has(item.id)}
-                  copiedId={copiedId}
-                  onToggleOpen={() => toggleCollapsed(item.id)}
-                  onCopy={copyToClipboard}
-                  animationDelay={`${Math.min(idx, 8) * 45}ms`}
-                />
-              ))}
+              <div className="glass-panel rounded-2xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <div className="min-w-[760px]">
+                    <div className={`grid ${GRID_COLS} gap-3 px-4 py-2.5 border-b border-white/10 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-500`}>
+                      <span>Severity</span>
+                      <span>Finding</span>
+                      <span>Category</span>
+                      <span>Status</span>
+                      <span>Confidence</span>
+                      <span className="text-right">Actions</span>
+                    </div>
+                    {group.items.map((item, idx) => (
+                      <SuggestionCard
+                        key={item.id}
+                        item={item}
+                        isOpen={!collapsedIds.has(item.id)}
+                        isNotApplicable={notApplicableIds.has(item.id)}
+                        copiedId={copiedId}
+                        onToggleOpen={() => toggleCollapsed(item.id)}
+                        onCopy={copyToClipboard}
+                        animationDelay={`${Math.min(idx, 8) * 45}ms`}
+                        pageTypeByUrl={pageTypeByUrl}
+                        pageTypeLabels={PAGE_TYPE_LABELS}
+                        targetUrl={data.targetUrl}
+                        isLast={idx === group.items.length - 1}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           ))
         )}
