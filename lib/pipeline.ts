@@ -6,9 +6,13 @@ import { resolveBusinessWebsite } from './resolver';
 import { prisma } from './prisma';
 import { PIPELINE_VERSION } from './version';
 
-// Raised alongside MAX_PAGES's reduction in lib/discovery.ts — halving the
-// batch count roughly halves crawl-phase wall-clock, which is what actually
-// needs to shrink to fit inside Vercel's 60s Hobby-plan ceiling.
+// The real crawl-time budget (discovery can enumerate far more — see
+// MAX_DISCOVERED_URLS in lib/discovery.ts — but each of these costs a real
+// Firecrawl fetch, which is the dominant cost against Vercel's 60s Hobby-
+// plan ceiling). Kept small deliberately; prioritizeForCrawl() below is what
+// makes a small number here still land one representative page per expected
+// category instead of just "whichever N happened to be discovered first".
+const MAX_CRAWL_PAGES = 18;
 const CRAWL_CONCURRENCY = 10;
 // How long a completed scan stays valid as a cached result for the same target
 // URL. Crawling and LLM analysis both introduce variance (live page content can
@@ -34,9 +38,55 @@ function classifyPageType(url: string, targetUrl: string): string {
   // location/visit-us page (or the homepage/footer) instead of a dedicated
   // /contact URL, and requiring one made PAGE_COVERAGE gaps (and the
   // gap-filling agent they trigger) fire on nearly every real site.
-  if (/location|direction|map|visit|hours|contact|reach|enquir|find-us/.test(path)) return 'LOCATION';
+  if (/location|direction|map|visit|hours|contact|reach|enquir|find-us|near|explore|discover|around|neighbo/.test(path)) return 'LOCATION';
   if (/polic|terms|faq|cancellation|privacy|returns/.test(path)) return 'POLICIES';
   return 'GENERAL';
+}
+
+// EXPECTED_PAGE_TYPES duplicated from lib/signals.ts (not imported) — this
+// runs before any crawling happens, purely to pick which discovered URLs are
+// worth spending a crawl on, and shouldn't need to reach into the scoring
+// module to do it.
+const REQUIRED_CATEGORIES = ['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES'];
+
+/**
+ * Cuts a (possibly large) discovered URL list down to the real crawl budget
+ * — but unlike a plain slice, it spends that budget deliberately: the
+ * homepage, then one URL per required category (in whatever order they
+ * first appear), then whatever's left, in original discovery order.
+ *
+ * This exists because a plain slice(0, MAX_CRAWL_PAGES) on a large site can
+ * easily miss a site's one policies or location page entirely if it happens
+ * to sit past the cutoff in Firecrawl's /v1/map or sitemap order — which
+ * then falsely reads as "no policies page exists" and spends 20-40s
+ * dispatching the gap-filling investigator agent to go looking for one that
+ * was there all along.
+ */
+export function prioritizeForCrawl(discoveredUrls: string[], targetUrl: string, budget: number): string[] {
+  const classified = discoveredUrls.map((url) => ({ url, type: classifyPageType(url, targetUrl) }));
+
+  const picked: string[] = [];
+  const pickedUrls = new Set<string>();
+  const take = (url: string) => {
+    if (pickedUrls.has(url) || picked.length >= budget) return;
+    pickedUrls.add(url);
+    picked.push(url);
+  };
+
+  const homepage = classified.find((c) => c.type === 'HOMEPAGE');
+  if (homepage) take(homepage.url);
+
+  for (const category of REQUIRED_CATEGORIES) {
+    const match = classified.find((c) => c.type === category && !pickedUrls.has(c.url));
+    if (match) take(match.url);
+  }
+
+  for (const { url } of classified) {
+    if (picked.length >= budget) break;
+    take(url);
+  }
+
+  return picked;
 }
 
 /**
@@ -83,18 +133,24 @@ export async function runAuditScan(rootQuery: string, options: { forceRefresh?: 
   });
 
   try {
-    // 2. Discover every same-origin page/route first, then crawl each one
+    // 2. Discover every same-origin page/route first, then pick which of
+    // them are actually worth spending a crawl on (see prioritizeForCrawl —
+    // this is what keeps a large site's real policies/location page from
+    // getting truncated away just because of where it landed in discovery
+    // order).
     const discoveredUrls = await discoverPages(targetUrl);
 
     if (discoveredUrls.length === 0) {
       throw new Error('Could not discover any pages on the target website.');
     }
 
+    const urlsToCrawl = prioritizeForCrawl(discoveredUrls, targetUrl, MAX_CRAWL_PAGES);
+
     const crawledPages: ExtractedPageData[] = [];
     const pageTypes = new Map<string, string>();
 
-    for (let i = 0; i < discoveredUrls.length; i += CRAWL_CONCURRENCY) {
-      const batch = discoveredUrls.slice(i, i + CRAWL_CONCURRENCY);
+    for (let i = 0; i < urlsToCrawl.length; i += CRAWL_CONCURRENCY) {
+      const batch = urlsToCrawl.slice(i, i + CRAWL_CONCURRENCY);
       await Promise.all(
         batch.map(async (url) => {
           try {
