@@ -1,6 +1,6 @@
-import { LayoutDashboard } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowLeft, LayoutDashboard } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
-import TopNav from '@/app/components/TopNav';
 import DashboardClient, { type DashboardScan } from './DashboardClient';
 
 export default async function DashboardPage() {
@@ -31,11 +31,16 @@ export default async function DashboardPage() {
   };
 
   return (
-    <main className="aurora-backdrop min-h-screen text-slate-100 flex flex-col">
-      <TopNav />
-      <div className="max-w-5xl mx-auto w-full p-6 md:p-12">
-        <div className="flex items-center gap-3 mb-8 animate-fade-in-up">
-          <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center shadow-lg shadow-cyan-900/30 shrink-0">
+    <main className="aurora-backdrop min-h-screen text-slate-100 p-6 md:p-12">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-center justify-between mb-8 animate-fade-in-up">
+          <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
+            <ArrowLeft className="h-4 w-4" /> Back to Search
+          </Link>
+        </div>
+
+        <div className="flex items-center gap-3 mb-8 animate-fade-in-up" style={{ animationDelay: '40ms' }}>
+          <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-900/40 shrink-0">
             <LayoutDashboard className="h-5 w-5 text-white" />
           </div>
           <div>

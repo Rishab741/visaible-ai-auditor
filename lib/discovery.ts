@@ -1,17 +1,9 @@
 import * as cheerio from 'cheerio';
 
-// How many URLs discovery is allowed to *enumerate* — cheap (a map/sitemap
-// call or link-scraping, no full-page fetches), so this can stay generous.
-// This is deliberately NOT the same number as how many pages actually get
-// crawled (lib/pipeline.ts's MAX_CRAWL_PAGES, the real time cost): capping
-// this cap too tightly used to mean the crawl budget was truncated to
-// whatever order Firecrawl's /v1/map or the sitemap happened to list pages
-// in, which could exclude a site's policies/location page entirely on a
-// large site — falsely marking that category "missing" and triggering the
-// gap-filling investigator agent, adding far more latency than the crawl
-// time it was meant to save. Discovering more up front lets pipeline.ts
-// prioritize which of them are actually worth spending a crawl on.
-const MAX_DISCOVERED_URLS = 60;
+// Prototype-scale cap: enough to cover a typical small/independent local
+// business site's marketing pages without a single audit crawling a huge
+// site (e.g. a chain site with thousands of blog posts) for minutes on end.
+const MAX_PAGES = 40;
 const MAX_BFS_DEPTH = 3;
 const DISCOVERY_CONCURRENCY = 8;
 
@@ -43,7 +35,7 @@ export async function discoverPages(rootUrl: string): Promise<string[]> {
   if (firecrawlKey && firecrawlKey.trim() !== '') {
     try {
       const urls = await mapWithFirecrawl(rootUrl, firecrawlKey);
-      if (urls.length > 0) return dedupeInScope(urls, origin, scopePrefix).slice(0, MAX_DISCOVERED_URLS);
+      if (urls.length > 0) return dedupeInScope(urls, origin, scopePrefix).slice(0, MAX_PAGES);
     } catch (err) {
       console.warn('Firecrawl map failed, falling back to sitemap/link discovery:', err);
     }
@@ -52,7 +44,7 @@ export async function discoverPages(rootUrl: string): Promise<string[]> {
   const sitemapUrls = await readSitemap(origin);
   if (sitemapUrls.length > 0) {
     const scoped = dedupeInScope([rootUrl, ...sitemapUrls], origin, scopePrefix);
-    if (scoped.length > 1) return scoped.slice(0, MAX_DISCOVERED_URLS);
+    if (scoped.length > 1) return scoped.slice(0, MAX_PAGES);
     // Sitemap existed but nothing else matched this property's prefix (e.g. a
     // sitemap that only lists top-level pages) — fall through to link crawling.
   }
@@ -75,7 +67,7 @@ async function mapWithFirecrawl(url: string, key: string): Promise<string[]> {
   const res = await fetch('https://api.firecrawl.dev/v1/map', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ url, limit: MAX_DISCOVERED_URLS }),
+    body: JSON.stringify({ url, limit: MAX_PAGES }),
   });
   const data = await res.json();
   if (!data.success || !Array.isArray(data.links)) return [];
@@ -114,10 +106,10 @@ async function crawlLinksBFS(rootUrl: string, origin: string, scopePrefix: strin
 
   let frontier = [start];
 
-  for (let depth = 0; depth < MAX_BFS_DEPTH && frontier.length > 0 && discovered.length < MAX_DISCOVERED_URLS; depth++) {
+  for (let depth = 0; depth < MAX_BFS_DEPTH && frontier.length > 0 && discovered.length < MAX_PAGES; depth++) {
     const nextFrontier: string[] = [];
 
-    for (let i = 0; i < frontier.length && discovered.length < MAX_DISCOVERED_URLS; i += DISCOVERY_CONCURRENCY) {
+    for (let i = 0; i < frontier.length && discovered.length < MAX_PAGES; i += DISCOVERY_CONCURRENCY) {
       const batch = frontier.slice(i, i + DISCOVERY_CONCURRENCY);
       const htmls = await Promise.all(batch.map((url) => fetchText(url)));
 
@@ -127,7 +119,7 @@ async function crawlLinksBFS(rootUrl: string, origin: string, scopePrefix: strin
 
         const $ = cheerio.load(html);
         $('a[href]').each((_, el) => {
-          if (discovered.length >= MAX_DISCOVERED_URLS) return;
+          if (discovered.length >= MAX_PAGES) return;
           const href = $(el).attr('href');
           const resolved = href && resolveLink(href, url, origin, scopePrefix);
           if (resolved && !visited.has(resolved)) {

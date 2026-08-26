@@ -4,11 +4,6 @@ import { generateImplementationSnippet, NotApplicableError } from '@/lib/snippet
 
 const GENERATION_CONCURRENCY = 3;
 
-// Same reasoning as app/api/audit/route.ts: batched sequential LLM calls
-// (one per pending suggestion, GENERATION_CONCURRENCY at a time) can run
-// well past Vercel's 10s default. 60s is the Hobby-plan ceiling.
-export const maxDuration = 60;
-
 /**
  * Bulk version of app/api/suggestions/[id]/snippet — generates implementation
  * snippets for every suggestion on a scan that doesn't already have one, as a

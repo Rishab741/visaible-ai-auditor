@@ -93,13 +93,13 @@ body {
 
 @keyframes glow-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.45);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.45);
   }
   70% {
-    box-shadow: 0 0 0 18px rgba(34, 211, 238, 0);
+    box-shadow: 0 0 0 18px rgba(99, 102, 241, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
   }
 }
 
@@ -126,14 +126,14 @@ body {
   transition: stroke-dashoffset 1.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Layered page backdrop: soft cyan/violet glows + a faint grid for texture,
+/* Layered page backdrop: soft aurora glows + a faint grid for texture,
    replacing a flat solid dark background. */
 .aurora-backdrop {
-  background-color: #05070d;
+  background-color: #020617;
   background-image:
-    radial-gradient(ellipse 55% 40% at 15% -5%, rgba(34, 211, 238, 0.14), transparent 60%),
-    radial-gradient(ellipse 45% 35% at 90% 10%, rgba(139, 92, 246, 0.12), transparent 60%),
-    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(34, 211, 238, 0.05), transparent 60%),
+    radial-gradient(ellipse 55% 40% at 15% -5%, rgba(99, 102, 241, 0.16), transparent 60%),
+    radial-gradient(ellipse 45% 35% at 90% 10%, rgba(168, 85, 247, 0.1), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(16, 185, 129, 0.05), transparent 60%),
     linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
   background-size: auto, auto, auto, 42px 42px, 42px 42px;
@@ -142,10 +142,10 @@ body {
 
 /* Frosted-glass card treatment used throughout in place of flat solid panels. */
 .glass-panel {
-  background-color: rgba(11, 18, 32, 0.6);
+  background-color: rgba(15, 23, 42, 0.55);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(148, 197, 220, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Accordion expand/collapse via the grid-template-rows trick — animates to
@@ -176,7 +176,7 @@ body {
 }
 
 .text-gradient-animated {
-  background-image: linear-gradient(90deg, #67e8f9, #c4b5fd, #67e8f9);
+  background-image: linear-gradient(90deg, #a5b4fc, #f0abfc, #a5b4fc);
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;

@@ -4,23 +4,22 @@ import { ExtractedPageData } from './crawler';
 import { createCrawlPageTool, createSearchLinksTool } from './tools';
 import { stableSeed } from './utils';
 
-const EXPECTED_PAGE_TYPES = ['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES'];
+const EXPECTED_PAGE_TYPES = ['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES', 'CONTACT'];
 const MAX_INVESTIGATOR_STEPS = 8;
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  OFFERINGS: ['room', 'suite', 'accommodat', 'menu', 'eat', 'drink', 'product', 'service', 'shop', 'store', 'book', 'amenit', 'facilit', 'dining', 'restaurant'],
+  OFFERINGS: ['room', 'suite', 'accommodat', 'menu', 'product', 'service', 'shop', 'store', 'amenit', 'facilit', 'dining', 'restaurant'],
   ABOUT: ['about', 'story', 'who-we-are', 'team', 'history'],
-  // Contact info folded in here rather than its own category — see the
-  // matching comment in lib/pipeline.ts's classifyPageType.
-  LOCATION: ['location', 'direction', 'map', 'visit', 'hours', 'contact', 'reach'],
+  LOCATION: ['location', 'direction', 'map', 'visit', 'hours'],
   POLICIES: ['polic', 'terms', 'faq', 'cancellation', 'privacy', 'returns'],
+  CONTACT: ['contact', 'reach', 'email', 'phone'],
 };
 
 /**
  * Strictly additive gap-filling, run after static discovery+crawl (which is
  * unchanged and still crawls everything it finds). Only spends an LLM call at
  * all when a page category expected of a local business site (offerings/
- * about/location/policies) wasn't found by static discovery — then gives a bounded
+ * about/location/policies/contact) wasn't found by static discovery — then gives a bounded
  * agent a few tool calls to try to locate and crawl one page for each gap.
  *
  * This can only add pages, never remove or skip ones static discovery already
