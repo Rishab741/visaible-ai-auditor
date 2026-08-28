@@ -17,7 +17,8 @@ model AuditScan {
   categoryScores  Json?          // Deterministic per-category breakdown (CONTENT_CLARITY, PAGE_COVERAGE, STRUCTURED_DATA, INTERNAL_CONSISTENCY, STRUCTURAL_SIGNALS), computed in lib/signals.ts
   pipelineVersion Int            @default(0) // lib/version.ts PIPELINE_VERSION at scan time — cache lookups only match the current version, so scans from older scoring logic age out automatically
   detectedCms     String?        // "wordpress" | "unknown" — see lib/crawler.ts DetectedCms; used by the on-demand implementation-snippet agent
-  crawlUrls       Json?          // Prioritized URL list from prioritizeForCrawl(), decided once by startAuditScan and immutable after — "what's left to crawl" is this minus already-persisted ScannedPage URLs, derived fresh each step
+  crawlUrls       Json?          // Prioritized URL list from prioritizeForCrawl(), decided once by startAuditScan and immutable after — "what's left to crawl" is this minus already-persisted ScannedPage URLs and crawlFailedUrls, derived fresh each step
+  crawlFailedUrls Json?          // URLs from crawlUrls that were attempted but never produced a ScannedPage row (crawl error or too-thin content) — without this, a permanently-failing URL has no persisted record of the attempt, so deriveRemainingCrawlUrls would keep re-selecting it into every future chunk forever instead of moving on, same one-attempt-per-URL semantics the old single-pass pipeline had
   processingSince DateTime?      // Compare-and-swap claim lock for stepAuditScan's resumable step machine — null when no invocation currently holds it
   failureReason   String?        // Human-readable cause when status -> FAILED: the original error message, or "abandoned: no progress" from the staleness reaper
   createdAt       DateTime       @default(now())

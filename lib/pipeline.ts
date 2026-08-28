@@ -320,21 +320,27 @@ export async function stepAuditScan(scanId: string): Promise<StepResult> {
 
 async function stepCrawl(scan: AuditScanRow): Promise<StepResult> {
   const crawlUrls = (scan.crawlUrls as string[] | null) ?? [];
+  const failedUrls = (scan.crawlFailedUrls as string[] | null) ?? [];
   const crawledRows = await prisma.scannedPage.findMany({ where: { auditScanId: scan.id }, select: { url: true } });
-  const alreadyCrawled = new Set(crawledRows.map((p) => p.url));
-  const remaining = deriveRemainingCrawlUrls(crawlUrls, crawledRows.map((p) => p.url));
+  // "Resolved" = every URL that's already had its one attempt, success or
+  // not -- excluding only successes here would mean a permanently-failing
+  // URL gets re-selected into every future chunk forever (see
+  // crawlFailedUrls's schema comment for how this was discovered live).
+  const resolvedUrls = [...crawledRows.map((p) => p.url), ...failedUrls];
+  const remaining = deriveRemainingCrawlUrls(crawlUrls, resolvedUrls);
 
   if (remaining.length === 0) {
     await prisma.auditScan.update({
       where: { id: scan.id },
       data: { status: 'INVESTIGATING', processingSince: null },
     });
-    console.log(`[audit ${scan.id}] crawl phase done -- ${alreadyCrawled.size} pages crawled, moving to INVESTIGATING`);
-    return { id: scan.id, status: 'INVESTIGATING', done: false, progress: { crawled: alreadyCrawled.size, total: crawlUrls.length } };
+    console.log(`[audit ${scan.id}] crawl phase done -- ${crawledRows.length} pages crawled (${failedUrls.length} failed), moving to INVESTIGATING`);
+    return { id: scan.id, status: 'INVESTIGATING', done: false, progress: { crawled: resolvedUrls.length, total: crawlUrls.length } };
   }
 
   const chunk = remaining.slice(0, CRAWL_CHUNK_SIZE);
   let wordpressSeen = false;
+  const newlyFailed: string[] = [];
 
   await Promise.all(
     chunk.map(async (url) => {
@@ -356,20 +362,26 @@ async function stepCrawl(scan: AuditScanRow): Promise<StepResult> {
           });
         } else {
           console.warn(`[audit ${scan.id}] page crawled but too thin to use (${url}, ${pageData.markdown?.length ?? 0} chars)`);
+          newlyFailed.push(url);
         }
       } catch (err) {
         console.warn(`[audit ${scan.id}] page failed to crawl (${url}):`, err);
+        newlyFailed.push(url);
       }
     })
   );
 
   await prisma.auditScan.update({
     where: { id: scan.id },
-    data: { processingSince: null, ...(wordpressSeen ? { detectedCms: 'wordpress' } : {}) },
+    data: {
+      processingSince: null,
+      crawlFailedUrls: [...failedUrls, ...newlyFailed],
+      ...(wordpressSeen ? { detectedCms: 'wordpress' } : {}),
+    },
   });
 
-  const attemptedSoFar = alreadyCrawled.size + chunk.length;
-  console.log(`[audit ${scan.id}] crawl chunk done -- attempted ${chunk.length}, ${remaining.length - chunk.length} remaining`);
+  const attemptedSoFar = resolvedUrls.length + chunk.length;
+  console.log(`[audit ${scan.id}] crawl chunk done -- attempted ${chunk.length} (${newlyFailed.length} failed/thin), ${remaining.length - chunk.length} remaining`);
   return {
     id: scan.id,
     status: 'CRAWLING',
