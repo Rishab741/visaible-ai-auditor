@@ -74,15 +74,30 @@ function extractStructuralSignals($: CheerioAPI): PageStructuralSignals {
   };
 }
 
-async function fetchWithRetry(url: string, init: RequestInit, retries = 2): Promise<Response> {
+// No timeout here previously meant a single slow page (common on
+// image/JS-heavy sites) could hold up its entire crawl batch indefinitely —
+// this is what was eating most of the 60s Vercel budget on the crawl phase
+// alone, leaving too little for the LLM analysis call that has to run after
+// it. Bounding each attempt keeps a bad page from silently consuming the
+// whole request's time; it still gets attempted, it just can't hang.
+const FETCH_TIMEOUT_MS = 15_000;
+
+async function fetchWithRetry(url: string, init: RequestInit, retries = 1): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, { ...init, signal: controller.signal });
       if (res.ok || attempt === retries) return res;
       lastError = new Error(`HTTP ${res.status}`);
     } catch (err) {
-      lastError = err;
+      lastError =
+        err instanceof Error && err.name === 'AbortError'
+          ? new Error(`Timed out after ${FETCH_TIMEOUT_MS}ms: ${url}`)
+          : err;
+    } finally {
+      clearTimeout(timeoutId);
     }
     if (attempt < retries) {
       await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));

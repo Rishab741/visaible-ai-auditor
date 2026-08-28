@@ -13,7 +13,14 @@ import { PIPELINE_VERSION } from './version';
 // makes a small number here still land one representative page per expected
 // category instead of just "whichever N happened to be discovered first".
 const MAX_CRAWL_PAGES = 18;
-const CRAWL_CONCURRENCY = 10;
+// Equal to MAX_CRAWL_PAGES so a full crawl batch runs as one parallel round
+// instead of two sequential ones. Confirmed live: 18 pages at concurrency 10
+// (two rounds of up to 10) took 43s just to crawl -- each round bounded by
+// its own slowest page, so two rounds roughly doubles that cost. One round
+// is bounded by only the single slowest page in the whole batch, now capped
+// at FETCH_TIMEOUT_MS (lib/crawler.ts) regardless. Doesn't change how many
+// pages get crawled, just how many rounds it takes to crawl them.
+const CRAWL_CONCURRENCY = MAX_CRAWL_PAGES;
 // How long a completed scan stays valid as a cached result for the same target
 // URL. Crawling and LLM analysis both introduce variance (live page content can
 // change, and the model samples non-deterministically) — serving the same

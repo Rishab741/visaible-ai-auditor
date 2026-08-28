@@ -231,14 +231,23 @@ function dedupeInScope(urls: string[], origin: string, scopePrefix: string): str
   return out;
 }
 
-async function fetchText(url: string, retries = 2): Promise<string | null> {
+// Same reasoning as lib/crawler.ts's FETCH_TIMEOUT_MS — an unbounded fetch
+// here (sitemap.xml, BFS link discovery, the investigator's search_links
+// tool) can hold up the whole discovery phase on one slow response.
+const FETCH_TIMEOUT_MS = 15_000;
+
+async function fetchText(url: string, retries = 1): Promise<string | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, { headers: UA_HEADERS });
+      const res = await fetch(url, { headers: UA_HEADERS, signal: controller.signal });
       if (res.ok) return await res.text();
       if (attempt === retries) return null;
     } catch {
       if (attempt === retries) return null;
+    } finally {
+      clearTimeout(timeoutId);
     }
     await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
   }
