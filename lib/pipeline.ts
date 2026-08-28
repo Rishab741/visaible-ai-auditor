@@ -39,7 +39,12 @@ function classifyPageType(url: string, targetUrl: string): string {
   // /contact URL, and requiring one made PAGE_COVERAGE gaps (and the
   // gap-filling agent they trigger) fire on nearly every real site.
   if (/location|direction|map|visit|hours|contact|reach|enquir|find-us|near|explore|discover|around|neighbo/.test(path)) return 'LOCATION';
-  if (/polic|terms|faq|cancellation|privacy|returns/.test(path)) return 'POLICIES';
+  // "faq" alone misses sites that spell it out (Ace Hotel Sydney's own
+  // /frequently-asked-questions page, confirmed live: it fell through to
+  // GENERAL, which read as "no policies page" and triggered the gap-filling
+  // agent for a page that had already been crawled and was sitting right
+  // there, just misclassified).
+  if (/polic|terms|faq|frequently-asked|cancellation|privacy|returns/.test(path)) return 'POLICIES';
   return 'GENERAL';
 }
 

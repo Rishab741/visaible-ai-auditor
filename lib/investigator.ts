@@ -13,7 +13,7 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   // Contact info folded in here rather than its own category — see the
   // matching comment in lib/pipeline.ts's classifyPageType.
   LOCATION: ['location', 'direction', 'map', 'visit', 'hours', 'contact', 'reach'],
-  POLICIES: ['polic', 'terms', 'faq', 'cancellation', 'privacy', 'returns'],
+  POLICIES: ['polic', 'terms', 'faq', 'frequently asked', 'cancellation', 'privacy', 'returns'],
 };
 
 /**
