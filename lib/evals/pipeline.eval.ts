@@ -1,5 +1,5 @@
 import { crawlBusinessPage } from '../crawler';
-import { prioritizeForCrawl } from '../pipeline';
+import { prioritizeForCrawl, deriveRemainingCrawlUrls, isLockClaimable } from '../pipeline';
 import { computeSiteSignals } from '../signals';
 import { analyzeBusinessWebsite } from '../analyzer';
 import { EvalCase, assert, assertInRange } from './framework';
@@ -46,6 +46,52 @@ export const pipelineEvalCases: EvalCase[] = [
         picked.includes('https://example.com/terms-and-conditions'),
         `expected the late-discovered policies page to be prioritized into the budget, got: ${JSON.stringify(picked)}`
       );
+    },
+  },
+  {
+    // The resumable step machine derives "what's left to crawl" fresh every
+    // /step call instead of tracking an in-memory cursor (there is no memory
+    // across separate invocations) -- this is the one piece of state every
+    // CRAWLING step depends on getting right.
+    name: 'pipeline: deriveRemainingCrawlUrls correctly excludes already-crawled URLs across repeated calls',
+    tier: 'fast',
+    run: () => {
+      const crawlUrls = ['https://example.com/', 'https://example.com/rooms', 'https://example.com/about', 'https://example.com/terms'];
+
+      const firstChunk = deriveRemainingCrawlUrls(crawlUrls, []);
+      assert(
+        JSON.stringify(firstChunk) === JSON.stringify(crawlUrls),
+        `expected all URLs remaining on the first call, got ${JSON.stringify(firstChunk)}`
+      );
+
+      const afterOneChunk = deriveRemainingCrawlUrls(crawlUrls, ['https://example.com/', 'https://example.com/rooms']);
+      assert(
+        JSON.stringify(afterOneChunk) === JSON.stringify(['https://example.com/about', 'https://example.com/terms']),
+        `expected only uncralwed URLs to remain, got ${JSON.stringify(afterOneChunk)}`
+      );
+
+      const afterAllCrawled = deriveRemainingCrawlUrls(crawlUrls, crawlUrls);
+      assert(afterAllCrawled.length === 0, `expected nothing remaining once every URL is crawled, got ${JSON.stringify(afterAllCrawled)}`);
+    },
+  },
+  {
+    // stepAuditScan's real concurrency safety comes from an atomic Prisma
+    // updateMany WHERE clause (a DB round trip, out of scope for the fast
+    // tier) -- this verifies the staleness-threshold math that clause
+    // enforces: a fresh lock blocks a second claim, but a lock left behind by
+    // a hard-killed invocation eventually becomes stealable again.
+    name: 'pipeline: isLockClaimable blocks a fresh lock but allows stealing a stale one',
+    tier: 'fast',
+    run: () => {
+      const now = new Date('2026-01-01T00:00:00Z');
+
+      assert(isLockClaimable(null, now), 'a scan with no lock held must be claimable');
+
+      const justClaimed = new Date(now.getTime() - 1_000); // held 1s ago
+      assert(!isLockClaimable(justClaimed, now), 'a lock claimed moments ago must block a second concurrent claim');
+
+      const staleClaim = new Date(now.getTime() - 91_000); // held 91s ago, past STALE_LOCK_MS (90s)
+      assert(isLockClaimable(staleClaim, now), 'a lock left behind by a hard-killed invocation must become stealable once stale');
     },
   },
   {

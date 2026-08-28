@@ -1,4 +1,5 @@
-import { crawlBusinessPage, ExtractedPageData } from './crawler';
+import { Prisma } from '@/app/generated/prisma/client';
+import { crawlBusinessPage, ExtractedPageData, PageStructuralSignals } from './crawler';
 import { discoverPages, normalizeUrl } from './discovery';
 import { investigateGaps } from './investigator';
 import { analyzeBusinessWebsite } from './analyzer';
@@ -99,6 +100,330 @@ export function prioritizeForCrawl(discoveredUrls: string[], targetUrl: string, 
   }
 
   return picked;
+}
+
+// How many URLs one CRAWLING step attempts before returning control to the
+// caller. Bounded worst-case per chunk is ~2x FETCH_TIMEOUT_MS (two retry
+// attempts on one slow page under fetchWithRetry) with real margin under
+// Vercel's 60s ceiling -- at the cost of needing multiple /step round trips
+// to get through a full MAX_CRAWL_PAGES budget. That's the whole point: many
+// short invocations instead of one long one, with the same total page count.
+const CRAWL_CHUNK_SIZE = 6;
+// A claim lock older than this is assumed to belong to an invocation that
+// got hard-killed mid-step (the same failure mode that used to strand scans
+// forever) rather than one still legitimately running -- safe to steal.
+// Must stay comfortably above any single invocation's real duration.
+const STALE_LOCK_MS = 90_000;
+// If a scan hasn't been touched at all in this long, no client is polling it
+// and no invocation is working it -- reap it as failed rather than let it
+// sit in a non-terminal status forever waiting for a poll that isn't coming.
+const ABANDONED_MS = 10 * 60 * 1000;
+
+const EMPTY_STRUCTURAL_SIGNALS: PageStructuralSignals = {
+  h1Count: 0,
+  headingCounts: { h1: 0, h2: 0, h3: 0, h4: 0, h5: 0, h6: 0 },
+  listCount: 0,
+  tableCount: 0,
+  paragraphCount: 0,
+  wordCount: 0,
+  longestBlockWords: 0,
+};
+
+/** What's left to crawl on the next chunk: crawlUrls minus whatever's already landed as a ScannedPage row. Pure and re-derived fresh every step rather than mutated in place, so it stays correct no matter how many chunks a scan has already been through. */
+export function deriveRemainingCrawlUrls(crawlUrls: string[], alreadyCrawledUrls: string[]): string[] {
+  const crawled = new Set(alreadyCrawledUrls);
+  return crawlUrls.filter((url) => !crawled.has(url));
+}
+
+/**
+ * Mirrors the staleness threshold enforced atomically by stepAuditScan's
+ * real compare-and-swap `updateMany` WHERE clause (see below) -- exists so
+ * that threshold math is independently unit-testable without a DB. The
+ * actual concurrency guarantee still comes from the literal Prisma query
+ * being one atomic row-locked UPDATE, not from this function; this only
+ * documents/verifies the same boundary it applies.
+ */
+export function isLockClaimable(processingSince: Date | null, now: Date = new Date()): boolean {
+  return processingSince === null || processingSince.getTime() < now.getTime() - STALE_LOCK_MS;
+}
+
+type AuditScanRow = NonNullable<Awaited<ReturnType<typeof prisma.auditScan.findUnique>>>;
+type ScannedPageRow = Awaited<ReturnType<typeof prisma.scannedPage.findMany>>[number];
+
+/** Rebuilds an ExtractedPageData from a persisted ScannedPage row so the ANALYZING step can run against durable state instead of needing the crawl held in memory across separate invocations. `cms` is a stub -- detectedCms is aggregated incrementally during CRAWLING instead (see stepCrawl), so nothing downstream reads this field. */
+function reconstructPageData(row: ScannedPageRow): ExtractedPageData {
+  return {
+    url: row.url,
+    title: row.title ?? row.url,
+    markdown: row.markdownContent,
+    schemaJsonLd: row.rawJsonLd ? JSON.parse(row.rawJsonLd) : [],
+    signals: (row.structuralSignals as unknown as PageStructuralSignals | null) ?? EMPTY_STRUCTURAL_SIGNALS,
+    cms: 'unknown',
+  };
+}
+
+/**
+ * Fast half of the pipeline: resolve -> cache-check -> discover -> decide the
+ * crawl budget. No full-page fetches happen here, so this comfortably fits
+ * in a short-lived invocation. Mirrors the first half of the old
+ * runAuditScan exactly (same cache-key semantics, same prioritizeForCrawl
+ * call) -- only the "then go crawl everything inline" tail is different.
+ */
+export async function startAuditScan(rootQuery: string, options: { forceRefresh?: boolean } = {}) {
+  const trimmedInput = rootQuery.trim();
+
+  const resolvedUrl = isUrlLike(trimmedInput)
+    ? trimmedInput.startsWith('http')
+      ? trimmedInput
+      : `https://${trimmedInput}`
+    : await resolveBusinessWebsite(trimmedInput);
+
+  const targetUrl = normalizeUrl(resolvedUrl);
+
+  if (!options.forceRefresh) {
+    const cachedScan = await prisma.auditScan.findFirst({
+      where: {
+        targetUrl,
+        status: 'COMPLETED',
+        pipelineVersion: PIPELINE_VERSION,
+        updatedAt: { gte: new Date(Date.now() - CACHE_TTL_MS) },
+      },
+      orderBy: { updatedAt: 'desc' },
+      include: { pages: true, suggestions: true },
+    });
+    if (cachedScan) {
+      console.log(`[audit] cache hit for ${targetUrl} -- no pipeline work done`);
+      return { fromCache: true as const, scan: cachedScan };
+    }
+  }
+
+  const discoveredUrls = await discoverPages(targetUrl);
+  if (discoveredUrls.length === 0) {
+    throw new Error('Could not discover any pages on the target website.');
+  }
+
+  const urlsToCrawl = prioritizeForCrawl(discoveredUrls, targetUrl, MAX_CRAWL_PAGES);
+
+  const scan = await prisma.auditScan.create({
+    data: {
+      targetUrl,
+      status: 'CRAWLING',
+      pipelineVersion: PIPELINE_VERSION,
+      crawlUrls: urlsToCrawl,
+    },
+  });
+  console.log(`[audit ${scan.id}] started for ${targetUrl} -- ${urlsToCrawl.length} of ${discoveredUrls.length} discovered URLs queued`);
+
+  return { fromCache: false as const, id: scan.id };
+}
+
+export interface StepResult {
+  id: string;
+  status: string;
+  done: boolean;
+  /** Another invocation currently holds the claim lock -- transient, poll again, not an error. */
+  locked?: boolean;
+  /** Only meaningful while status is CRAWLING. */
+  progress?: { crawled: number; total: number };
+  error?: string;
+}
+
+/**
+ * Advances a scan by exactly one bounded unit of work (one crawl chunk, or
+ * one full INVESTIGATING/ANALYZING pass) and returns. Callers loop this
+ * until `done`. Every non-terminal call is guarded by a compare-and-swap
+ * claim on `processingSince` so a duplicate/overlapping call is a harmless
+ * no-op (`locked: true`) rather than doing the same work twice, and any
+ * invocation that itself gets hard-killed mid-step leaves a lock that
+ * expires after STALE_LOCK_MS instead of stranding the scan forever -- the
+ * next poll (client retry, or the staleness reap below) picks it back up
+ * from whatever's already durable in the DB.
+ */
+export async function stepAuditScan(scanId: string): Promise<StepResult> {
+  const scan = await prisma.auditScan.findUnique({ where: { id: scanId } });
+  if (!scan) throw new Error(`Scan not found: ${scanId}`);
+
+  if (scan.status === 'COMPLETED' || scan.status === 'FAILED') {
+    return { id: scan.id, status: scan.status, done: true };
+  }
+
+  if (Date.now() - scan.updatedAt.getTime() > ABANDONED_MS) {
+    await prisma.auditScan.update({
+      where: { id: scan.id },
+      data: { status: 'FAILED', failureReason: 'abandoned: no progress', processingSince: null },
+    });
+    console.warn(`[audit ${scan.id}] abandoned -- no progress for over ${ABANDONED_MS / 1000}s`);
+    return { id: scan.id, status: 'FAILED', done: true, error: 'abandoned: no progress' };
+  }
+
+  const claim = await prisma.auditScan.updateMany({
+    where: {
+      id: scan.id,
+      OR: [{ processingSince: null }, { processingSince: { lt: new Date(Date.now() - STALE_LOCK_MS) } }],
+    },
+    data: { processingSince: new Date() },
+  });
+  if (claim.count !== 1) {
+    return { id: scan.id, status: scan.status, done: false, locked: true };
+  }
+
+  try {
+    switch (scan.status) {
+      case 'CRAWLING':
+        return await stepCrawl(scan);
+      case 'INVESTIGATING':
+        return await stepInvestigate(scan);
+      case 'ANALYZING':
+        return await stepAnalyze(scan);
+      default:
+        throw new Error(`Unexpected scan status: ${scan.status}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[audit ${scan.id}] FAILED during ${scan.status}:`, error);
+    await prisma.auditScan.update({
+      where: { id: scan.id },
+      data: { status: 'FAILED', failureReason: message, processingSince: null },
+    });
+    return { id: scan.id, status: 'FAILED', done: true, error: message };
+  }
+}
+
+async function stepCrawl(scan: AuditScanRow): Promise<StepResult> {
+  const crawlUrls = (scan.crawlUrls as string[] | null) ?? [];
+  const crawledRows = await prisma.scannedPage.findMany({ where: { auditScanId: scan.id }, select: { url: true } });
+  const alreadyCrawled = new Set(crawledRows.map((p) => p.url));
+  const remaining = deriveRemainingCrawlUrls(crawlUrls, crawledRows.map((p) => p.url));
+
+  if (remaining.length === 0) {
+    await prisma.auditScan.update({
+      where: { id: scan.id },
+      data: { status: 'INVESTIGATING', processingSince: null },
+    });
+    console.log(`[audit ${scan.id}] crawl phase done -- ${alreadyCrawled.size} pages crawled, moving to INVESTIGATING`);
+    return { id: scan.id, status: 'INVESTIGATING', done: false, progress: { crawled: alreadyCrawled.size, total: crawlUrls.length } };
+  }
+
+  const chunk = remaining.slice(0, CRAWL_CHUNK_SIZE);
+  let wordpressSeen = false;
+
+  await Promise.all(
+    chunk.map(async (url) => {
+      try {
+        const pageData = await crawlBusinessPage(url);
+        if (pageData.cms === 'wordpress') wordpressSeen = true;
+        if (pageData.markdown && pageData.markdown.length > 50) {
+          const pageType = classifyPageType(url, scan.targetUrl);
+          await prisma.scannedPage.create({
+            data: {
+              auditScanId: scan.id,
+              url: pageData.url,
+              pageType,
+              title: pageData.title,
+              markdownContent: pageData.markdown,
+              rawJsonLd: JSON.stringify(pageData.schemaJsonLd),
+              structuralSignals: pageData.signals as unknown as Prisma.InputJsonValue,
+            },
+          });
+        } else {
+          console.warn(`[audit ${scan.id}] page crawled but too thin to use (${url}, ${pageData.markdown?.length ?? 0} chars)`);
+        }
+      } catch (err) {
+        console.warn(`[audit ${scan.id}] page failed to crawl (${url}):`, err);
+      }
+    })
+  );
+
+  await prisma.auditScan.update({
+    where: { id: scan.id },
+    data: { processingSince: null, ...(wordpressSeen ? { detectedCms: 'wordpress' } : {}) },
+  });
+
+  const attemptedSoFar = alreadyCrawled.size + chunk.length;
+  console.log(`[audit ${scan.id}] crawl chunk done -- attempted ${chunk.length}, ${remaining.length - chunk.length} remaining`);
+  return {
+    id: scan.id,
+    status: 'CRAWLING',
+    done: false,
+    progress: { crawled: Math.min(attemptedSoFar, crawlUrls.length), total: crawlUrls.length },
+  };
+}
+
+async function stepInvestigate(scan: AuditScanRow): Promise<StepResult> {
+  const pages = await prisma.scannedPage.findMany({ where: { auditScanId: scan.id } });
+  const presentPageTypes = new Set(pages.map((p) => p.pageType));
+  const alreadyCrawledUrls = new Set(pages.map((p) => p.url));
+
+  const bonusPages = await investigateGaps({ targetUrl: scan.targetUrl, presentPageTypes, alreadyCrawledUrls });
+  console.log(`[audit ${scan.id}] gap-filling investigator done -- ${bonusPages.length} bonus pages`);
+
+  let wordpressSeen = false;
+  for (const pageData of bonusPages) {
+    if (pageData.cms === 'wordpress') wordpressSeen = true;
+    const pageType = classifyPageType(pageData.url, scan.targetUrl);
+    await prisma.scannedPage.create({
+      data: {
+        auditScanId: scan.id,
+        url: pageData.url,
+        pageType,
+        title: pageData.title,
+        markdownContent: pageData.markdown,
+        rawJsonLd: JSON.stringify(pageData.schemaJsonLd),
+        structuralSignals: pageData.signals as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  await prisma.auditScan.update({
+    where: { id: scan.id },
+    data: { status: 'ANALYZING', processingSince: null, ...(wordpressSeen ? { detectedCms: 'wordpress' } : {}) },
+  });
+
+  return { id: scan.id, status: 'ANALYZING', done: false };
+}
+
+async function stepAnalyze(scan: AuditScanRow): Promise<StepResult> {
+  const rows = await prisma.scannedPage.findMany({ where: { auditScanId: scan.id } });
+  if (rows.length === 0) {
+    throw new Error('Could not crawl any accessible pages from the target URL.');
+  }
+
+  const pages = rows.map(reconstructPageData);
+  const pageTypes = new Map(rows.map((r) => [r.url, r.pageType]));
+
+  const analysisReport = await analyzeBusinessWebsite(pages, pageTypes);
+  console.log(`[audit ${scan.id}] LLM analysis done -- ${analysisReport.suggestions.length} suggestions`);
+
+  for (const item of analysisReport.suggestions) {
+    await prisma.optimizationSuggestion.create({
+      data: {
+        auditScanId: scan.id,
+        category: item.category,
+        severity: item.severity,
+        issue: item.issue,
+        impactReason: item.impactReason,
+        suggestedFix: item.suggestedFix,
+        affectedUrls: JSON.stringify(item.affectedUrls),
+        currentSnippet: item.currentSnippet || null,
+        confidenceScore: item.confidenceScore,
+      },
+    });
+  }
+
+  await prisma.auditScan.update({
+    where: { id: scan.id },
+    data: {
+      hotelName: analysisReport.hotelName,
+      summary: analysisReport.summary,
+      overallScore: analysisReport.overallAiReadabilityScore,
+      categoryScores: analysisReport.categoryScores,
+      status: 'COMPLETED',
+      processingSince: null,
+    },
+  });
+
+  console.log(`[audit ${scan.id}] COMPLETED`);
+  return { id: scan.id, status: 'COMPLETED', done: true };
 }
 
 /**
