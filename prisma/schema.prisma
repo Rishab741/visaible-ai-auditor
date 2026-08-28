@@ -12,11 +12,14 @@ model AuditScan {
   targetUrl       String
   hotelName       String?        // Despite the name, holds any local business's name (hotel, restaurant, shop, etc.) — kept as-is to avoid a column-rename migration; see lib/analyzer.ts
   summary         String?
-  status          String         @default("PENDING") // PENDING, CRAWLING, ANALYZING, COMPLETED, FAILED
+  status          String         @default("PENDING") // PENDING, CRAWLING, INVESTIGATING, ANALYZING, COMPLETED, FAILED — see lib/pipeline.ts stepAuditScan
   overallScore    Int            @default(0)
   categoryScores  Json?          // Deterministic per-category breakdown (CONTENT_CLARITY, PAGE_COVERAGE, STRUCTURED_DATA, INTERNAL_CONSISTENCY, STRUCTURAL_SIGNALS), computed in lib/signals.ts
   pipelineVersion Int            @default(0) // lib/version.ts PIPELINE_VERSION at scan time — cache lookups only match the current version, so scans from older scoring logic age out automatically
   detectedCms     String?        // "wordpress" | "unknown" — see lib/crawler.ts DetectedCms; used by the on-demand implementation-snippet agent
+  crawlUrls       Json?          // Prioritized URL list from prioritizeForCrawl(), decided once by startAuditScan and immutable after — "what's left to crawl" is this minus already-persisted ScannedPage URLs, derived fresh each step
+  processingSince DateTime?      // Compare-and-swap claim lock for stepAuditScan's resumable step machine — null when no invocation currently holds it
+  failureReason   String?        // Human-readable cause when status -> FAILED: the original error message, or "abandoned: no progress" from the staleness reaper
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   pages           ScannedPage[]
@@ -24,15 +27,16 @@ model AuditScan {
 }
 
 model ScannedPage {
-  id              String     @id @default(cuid())
-  auditScanId     String
-  url             String
-  pageType        String     @default("GENERAL") // HOMEPAGE, OFFERINGS, ABOUT, LOCATION, POLICIES, CONTACT
-  title           String?
-  markdownContent String
-  rawJsonLd       String?    // Stored as stringified JSON
-  scannedAt       DateTime   @default(now())
-  auditScan       AuditScan  @relation(fields: [auditScanId], references: [id], onDelete: Cascade)
+  id                String     @id @default(cuid())
+  auditScanId       String
+  url               String
+  pageType          String     @default("GENERAL") // HOMEPAGE, OFFERINGS, ABOUT, LOCATION, POLICIES, CONTACT
+  title             String?
+  markdownContent   String
+  rawJsonLd         String?    // Stored as stringified JSON
+  structuralSignals Json?      // PageStructuralSignals from lib/crawler.ts (h1Count, headingCounts, listCount, tableCount, paragraphCount, wordCount, longestBlockWords) — persisted so the ANALYZING step can reconstruct ExtractedPageData from the DB instead of needing it held in memory across separate invocations; computeSiteSignals() in lib/signals.ts reads these fields directly
+  scannedAt         DateTime   @default(now())
+  auditScan         AuditScan  @relation(fields: [auditScanId], references: [id], onDelete: Cascade)
 }
 
 model OptimizationSuggestion {
