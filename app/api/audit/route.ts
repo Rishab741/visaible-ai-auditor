@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runAuditScan } from '@/lib/pipeline';
+import { startAuditScan, reapAllStaleScans } from '@/lib/pipeline';
 import { prisma } from '@/lib/prisma';
 
-// Without this, Vercel defaults every function to a 10s cap regardless of
-// plan -- and a fresh (non-cached) audit routinely runs well past that
-// (multi-page crawl + LLM analysis). 60s is the hard ceiling on the Hobby
-// plan; this raises us to it. A very large site can still exceed even that,
-// at which point the only remaining levers are a paid plan (up to 300s) or
-// trimming pipeline scope -- not something to silently paper over here.
-export const maxDuration = 60;
+// startAuditScan only resolves, checks the cache, and discovers/prioritizes
+// URLs -- no full-page crawling or LLM analysis happens here anymore (that's
+// stepAuditScan, called repeatedly from app/api/audit/[id]/step/route.ts).
+// This should return in single-digit seconds; 30s is generous headroom, not
+// a budget this route is expected to need.
+export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,17 +17,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Valid URL is required' }, { status: 400 });
     }
 
-    const auditResult = await runAuditScan(url.trim(), { forceRefresh: forceRefresh === true });
-    return NextResponse.json(auditResult);
+    const result = await startAuditScan(url.trim(), { forceRefresh: forceRefresh === true });
+    return NextResponse.json(result);
   } catch (error: unknown) {
     console.error('Audit Pipeline Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to complete AI visibility audit';
+    const message = error instanceof Error ? error.message : 'Failed to start AI visibility audit';
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 export async function GET() {
   try {
+    // Reap anything stuck before showing it -- a scan nobody's actively
+    // polling should still read as FAILED here rather than hanging as
+    // "in progress" forever.
+    await reapAllStaleScans();
     const latestScans = await prisma.auditScan.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },

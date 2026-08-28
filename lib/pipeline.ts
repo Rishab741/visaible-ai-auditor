@@ -217,6 +217,47 @@ export async function startAuditScan(rootQuery: string, options: { forceRefresh?
   return { fromCache: false as const, id: scan.id };
 }
 
+// Non-terminal statuses a scan can be reaped out of. Listed explicitly
+// (rather than "not COMPLETED/FAILED") so a typo'd future status string
+// fails loudly instead of silently becoming reapable.
+const NON_TERMINAL_STATUSES = ['PENDING', 'CRAWLING', 'INVESTIGATING', 'ANALYZING'];
+
+/**
+ * Flips one scan to FAILED if it's stuck in a non-terminal status with no
+ * activity for ABANDONED_MS -- covers both "the client gave up polling" and
+ * "every invocation that ever touched this scan got hard-killed before its
+ * own catch block could run." A single conditional updateMany, so it's safe
+ * to call redundantly (a scan that isn't actually stale is a no-op) and
+ * atomic against a concurrent stepAuditScan call racing to claim the same
+ * scan. Called both from stepAuditScan itself (so a poll on a dead scan
+ * resolves it instead of looping forever) and from every read path that
+ * shows non-terminal scans to a user, so a scan nobody's actively polling
+ * still reaches a legible terminal state the next time anyone looks at it.
+ */
+export async function reapIfStale(scanId: string): Promise<boolean> {
+  const result = await prisma.auditScan.updateMany({
+    where: {
+      id: scanId,
+      status: { in: NON_TERMINAL_STATUSES },
+      updatedAt: { lt: new Date(Date.now() - ABANDONED_MS) },
+    },
+    data: { status: 'FAILED', failureReason: 'abandoned: no progress', processingSince: null },
+  });
+  return result.count === 1;
+}
+
+/** Batch form of reapIfStale for list views (dashboard, recent-scans) -- one query instead of one per row. Returns how many were reaped. */
+export async function reapAllStaleScans(): Promise<number> {
+  const result = await prisma.auditScan.updateMany({
+    where: {
+      status: { in: NON_TERMINAL_STATUSES },
+      updatedAt: { lt: new Date(Date.now() - ABANDONED_MS) },
+    },
+    data: { status: 'FAILED', failureReason: 'abandoned: no progress', processingSince: null },
+  });
+  return result.count;
+}
+
 export interface StepResult {
   id: string;
   status: string;
@@ -247,11 +288,7 @@ export async function stepAuditScan(scanId: string): Promise<StepResult> {
     return { id: scan.id, status: scan.status, done: true };
   }
 
-  if (Date.now() - scan.updatedAt.getTime() > ABANDONED_MS) {
-    await prisma.auditScan.update({
-      where: { id: scan.id },
-      data: { status: 'FAILED', failureReason: 'abandoned: no progress', processingSince: null },
-    });
+  if (await reapIfStale(scan.id)) {
     console.warn(`[audit ${scan.id}] abandoned -- no progress for over ${ABANDONED_MS / 1000}s`);
     return { id: scan.id, status: 'FAILED', done: true, error: 'abandoned: no progress' };
   }

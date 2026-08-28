@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Compass, ScanSearch, BrainCircuit, ListChecks, CheckCircle2, Loader2 } from 'lucide-react';
 import TopNav from '@/app/components/TopNav';
+import type { StepResult } from '@/lib/pipeline';
 
 const LOADING_STAGES = [
   { label: 'Discovering all pages & routes', icon: Compass },
@@ -13,65 +14,138 @@ const LOADING_STAGES = [
   { label: 'Generating AI visibility suggestions', icon: ListChecks },
 ];
 
+// Maps the real AuditScan.status values (see lib/pipeline.ts's step
+// machine) onto the 4 display stages above.
+const STATUS_STAGE: Record<string, number> = {
+  PENDING: 0,
+  CRAWLING: 1,
+  INVESTIGATING: 2,
+  ANALYZING: 3,
+};
+
+const POLL_INTERVAL_MS = 1500;
+// Belt-and-suspenders with the server-side staleness reap (lib/pipeline.ts's
+// ABANDONED_MS) -- gives up client-side well before that so a dead scan
+// doesn't leave this tab spinning for the full server-side window.
+const MAX_WALL_CLOCK_MS = 3 * 60 * 1000;
+const MAX_CONSECUTIVE_LOCKED = 20;
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+async function parseErrorMessage(res: Response): Promise<string> {
+  let message = `Audit failed (HTTP ${res.status})`;
+  try {
+    const errJson = await res.json();
+    if (errJson?.error) message = errJson.error;
+  } catch {
+    // Body wasn't JSON -- keep the generic status-based message.
+  }
+  return message;
+}
+
 export default function RunningClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const q = searchParams.get('q') || '';
   const forceRefresh = searchParams.get('forceRefresh') === 'true';
+  const resumeId = searchParams.get('resume');
 
-  const [activeStage, setActiveStage] = useState(0);
+  const [status, setStatus] = useState<string>('PENDING');
+  const [progress, setProgress] = useState<{ crawled: number; total: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const startedRef = useRef(false);
 
   useEffect(() => {
-    if (!q || startedRef.current) return;
+    if ((!q && !resumeId) || startedRef.current) return;
     startedRef.current = true;
 
-    // The audit is a single request/response, so these timers approximate
-    // real pipeline phases (discovery -> crawl -> cross-reference -> generate)
-    // to keep this screen legible during a multi-minute multi-page scan.
-    const stageTimers = [
-      setTimeout(() => setActiveStage(1), 6000),
-      setTimeout(() => setActiveStage(2), 20000),
-      setTimeout(() => setActiveStage(3), 32000),
-    ];
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const pollStartTime = Date.now();
+    let consecutiveLocked = 0;
+    let consecutiveErrors = 0;
 
-    fetch('/api/audit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: q, forceRefresh }),
-    })
-      .then(async (res) => {
-        // The API route always returns JSON, even on its own errors — but a
-        // failure outside the route (a platform/proxy timeout, the dev
-        // server restarting mid-request) can hand back plain text or an
-        // HTML error page instead. Never call res.json() on that blindly:
-        // check res.ok first, and degrade to a readable message instead of
-        // letting a raw "Unexpected token..." parse error reach the user.
-        if (!res.ok) {
-          let message = `Audit failed (HTTP ${res.status})`;
-          try {
-            const errJson = await res.json();
-            if (errJson?.error) message = errJson.error;
-          } catch {
-            // Body wasn't JSON — keep the generic status-based message.
+    async function pollStep(id: string) {
+      if (cancelled) return;
+
+      if (Date.now() - pollStartTime > MAX_WALL_CLOCK_MS) {
+        setErrorMsg('This audit is taking longer than expected. It will keep running in the background -- check the dashboard shortly, or try again.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/audit/${id}/step`, { method: 'POST' });
+        if (!res.ok) throw new Error(await parseErrorMessage(res));
+
+        const step: StepResult = await res.json();
+        consecutiveErrors = 0;
+
+        if (step.locked) {
+          consecutiveLocked++;
+          if (consecutiveLocked > MAX_CONSECUTIVE_LOCKED) {
+            setErrorMsg('This audit is taking longer than expected. It will keep running in the background -- check the dashboard shortly, or try again.');
+            return;
           }
-          throw new Error(message);
+          timeoutId = setTimeout(() => pollStep(id), POLL_INTERVAL_MS);
+          return;
         }
+        consecutiveLocked = 0;
+
+        setStatus(step.status);
+        setProgress(step.progress ?? null);
+
+        if (step.done) {
+          if (step.status === 'COMPLETED') {
+            router.replace(`/audit/${id}`);
+          } else {
+            setErrorMsg(step.error || 'Audit failed.');
+          }
+          return;
+        }
+
+        timeoutId = setTimeout(() => pollStep(id), POLL_INTERVAL_MS);
+      } catch (err) {
+        consecutiveErrors++;
+        if (consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
+          setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred during analysis.');
+          return;
+        }
+        timeoutId = setTimeout(() => pollStep(id), POLL_INTERVAL_MS);
+      }
+    }
+
+    async function start() {
+      if (resumeId) {
+        pollStep(resumeId);
+        return;
+      }
+      try {
+        const res = await fetch('/api/audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: q, forceRefresh }),
+        });
+        if (!res.ok) throw new Error(await parseErrorMessage(res));
+
         const data = await res.json();
-        router.replace(`/audit/${data.id}`);
-      })
-      .catch((err: unknown) => {
+        if (data.fromCache) {
+          router.replace(`/audit/${data.scan.id}`);
+          return;
+        }
+        pollStep(data.id);
+      } catch (err) {
         setErrorMsg(err instanceof Error ? err.message : 'An unexpected error occurred during analysis.');
-      })
-      .finally(() => {
-        stageTimers.forEach(clearTimeout);
-      });
+      }
+    }
 
-    return () => stageTimers.forEach(clearTimeout);
-  }, [q, forceRefresh, router]);
+    start();
 
-  if (!q) {
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [q, forceRefresh, resumeId, router]);
+
+  if (!q && !resumeId) {
     return (
       <main className="aurora-backdrop min-h-screen flex items-center justify-center text-slate-100 p-6">
         <div className="text-center">
@@ -84,7 +158,13 @@ export default function RunningClient() {
     );
   }
 
-  const progressPct = Math.round((activeStage / LOADING_STAGES.length) * 100);
+  const activeStage = STATUS_STAGE[status] ?? 0;
+  // CRAWLING is the only stage with real sub-progress from the server (a
+  // page count) -- the others advance in one jump when their step completes,
+  // so fold in a fraction only there instead of pretending precision we
+  // don't have.
+  const stageFraction = status === 'CRAWLING' && progress && progress.total > 0 ? Math.min(progress.crawled / progress.total, 1) : 0;
+  const progressPct = Math.round(((activeStage + stageFraction) / LOADING_STAGES.length) * 100);
   const circumference = 2 * Math.PI * 54;
   const offset = circumference - (progressPct / 100) * circumference;
 
@@ -96,7 +176,7 @@ export default function RunningClient() {
         <div className="max-w-4xl w-full animate-scale-in">
           <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 truncate">Analyzing {q}</h1>
+              <h1 className="text-2xl md:text-3xl font-bold text-white mb-1.5 truncate">Analyzing {q || '…'}</h1>
               <p className="text-sm text-slate-400 max-w-lg">
                 Arthur is crawling, cross-referencing, and evaluating AI visibility. This can take a minute or two for a multi-page scan.
               </p>
@@ -132,6 +212,9 @@ export default function RunningClient() {
                 </div>
               </div>
               <p className="text-sm font-bold text-white mt-5">{LOADING_STAGES[activeStage]?.label ?? 'Finalizing report'}</p>
+              {status === 'CRAWLING' && progress && progress.total > 0 && (
+                <p className="text-[11px] text-slate-500 mt-1 tabular-nums">{progress.crawled} / {progress.total} pages</p>
+              )}
               <div className="h-1 w-full rounded-full bg-slate-800 overflow-hidden mt-3">
                 <div className="h-full rounded-full bg-cyan-400 transition-[width] duration-700 ease-out" style={{ width: `${progressPct}%` }} />
               </div>

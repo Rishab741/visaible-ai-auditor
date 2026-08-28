@@ -1,9 +1,14 @@
 import { LayoutDashboard } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
+import { reapAllStaleScans } from '@/lib/pipeline';
 import TopNav from '@/app/components/TopNav';
 import DashboardClient, { type DashboardScan } from './DashboardClient';
 
 export default async function DashboardPage() {
+  // Reap anything stuck before showing it -- see lib/pipeline.ts's
+  // reapAllStaleScans for why this can't just wait for a background cron.
+  await reapAllStaleScans();
+
   const scans = await prisma.auditScan.findMany({
     orderBy: { updatedAt: 'desc' },
     take: 100,

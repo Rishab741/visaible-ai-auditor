@@ -27,11 +27,12 @@ const STATUS_STYLES: Record<string, string> = {
   COMPLETED: 'bg-cyan-950/70 text-cyan-400 border border-cyan-800/70',
   FAILED: 'bg-rose-950/70 text-rose-400 border border-rose-800/70',
   CRAWLING: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
+  INVESTIGATING: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
   ANALYZING: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
   PENDING: 'bg-slate-800/70 text-slate-400 border border-slate-700/70',
 };
 
-const IN_PROGRESS_STATUSES = new Set(['PENDING', 'CRAWLING', 'ANALYZING']);
+const IN_PROGRESS_STATUSES = new Set(['PENDING', 'CRAWLING', 'INVESTIGATING', 'ANALYZING']);
 
 type FilterKey = 'ALL' | 'COMPLETED' | 'IN_PROGRESS' | 'FAILED';
 const FILTERS: { key: FilterKey; label: string }[] = [
