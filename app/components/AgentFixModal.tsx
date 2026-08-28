@@ -100,8 +100,22 @@ export default function AgentFixModal({
 
     fetch(`/api/audit/${scanId}/snippets`, { method: 'POST' })
       .then(async (res) => {
+        // Bulk snippet generation can run long (one LLM call per pending
+        // suggestion) — long enough to hit a platform/proxy timeout whose
+        // response isn't JSON at all. Check res.ok before trusting the body
+        // is parseable, so a non-JSON response degrades to a clear message
+        // instead of a raw "Unexpected token..." parse error.
+        if (!res.ok) {
+          let message = `${AGENT_NAME} couldn't generate these fixes (HTTP ${res.status}).`;
+          try {
+            const errJson = await res.json();
+            if (errJson?.error) message = errJson.error;
+          } catch {
+            // Body wasn't JSON — keep the generic status-based message.
+          }
+          throw new Error(message);
+        }
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || `${AGENT_NAME} couldn't generate these fixes.`);
         const results = json.results as AgentFixResult[];
 
         setItemStatus((prev) => {
@@ -160,8 +174,8 @@ export default function AgentFixModal({
 
         {/* Persona */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="relative h-11 w-11 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-900/40">
-            {!applied && !error && !awaitingAuthorization && <span className="absolute inset-0 rounded-xl bg-emerald-400/30 animate-pulse-ring" />}
+          <div className="relative h-11 w-11 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center shrink-0 shadow-lg shadow-cyan-900/40">
+            {!applied && !error && !awaitingAuthorization && <span className="absolute inset-0 rounded-xl bg-cyan-400/30 animate-pulse-ring" />}
             <Bot className="h-5 w-5 text-white relative" />
           </div>
           <div>
@@ -185,15 +199,15 @@ export default function AgentFixModal({
                   <div
                     key={phase.label}
                     className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors duration-500 ${
-                      isActive ? 'border-emerald-500/40 bg-emerald-950/30' : isDone ? 'border-emerald-800/30 bg-emerald-950/10' : 'border-white/5 bg-white/[0.02]'
+                      isActive ? 'border-cyan-500/40 bg-cyan-950/30' : isDone ? 'border-cyan-800/30 bg-cyan-950/10' : 'border-white/5 bg-white/[0.02]'
                     }`}
                   >
                     {isDone ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0" />
                     ) : (
-                      <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-emerald-300' : 'text-slate-600'}`} />
+                      <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-cyan-300' : 'text-slate-600'}`} />
                     )}
-                    <span className={`text-xs font-mono ${isActive ? 'text-emerald-200' : isDone ? 'text-emerald-400/70' : 'text-slate-600'}`}>{phase.label}</span>
+                    <span className={`text-xs font-mono ${isActive ? 'text-cyan-200' : isDone ? 'text-cyan-400/70' : 'text-slate-600'}`}>{phase.label}</span>
                     {showCms && (
                       <span className="ml-auto shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-slate-300">{cmsLabel}</span>
                     )}
@@ -208,10 +222,10 @@ export default function AgentFixModal({
                 const status = itemStatus[t.id];
                 return (
                   <div key={t.id} className="flex items-center gap-2.5 text-xs py-1">
-                    {status === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />}
+                    {status === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 shrink-0" />}
                     {status === 'skipped' && <MinusCircle className="h-3.5 w-3.5 text-slate-500 shrink-0" />}
                     {status === 'error' && <X className="h-3.5 w-3.5 text-rose-400 shrink-0" />}
-                    {status === 'processing' && <Loader2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 animate-spin" />}
+                    {status === 'processing' && <Loader2 className="h-3.5 w-3.5 text-cyan-400 shrink-0 animate-spin" />}
                     {status === 'queued' && <span className="h-3.5 w-3.5 rounded-full border border-slate-700 shrink-0" />}
                     <span className={`truncate ${status === 'queued' ? 'text-slate-600' : 'text-slate-300'}`}>{t.issue}</span>
                   </div>
@@ -223,12 +237,12 @@ export default function AgentFixModal({
                 report until the user explicitly authorizes it here. */}
             {awaitingAuthorization && draftResults && (
               <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
-                <div className="flex items-start gap-2 text-xs text-amber-300 bg-amber-950/30 border border-amber-500/20 rounded-lg p-3">
+                <div className="flex items-start gap-2 text-xs text-violet-300 bg-violet-950/30 border border-violet-500/20 rounded-lg p-3">
                   <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>
                     {AGENT_NAME} has drafted {draftResults.filter((r) => r.implementationSnippet).length} fix
                     {draftResults.filter((r) => r.implementationSnippet).length === 1 ? '' : 'es'} for your{' '}
-                    <strong className="text-amber-200">{cmsLabel}</strong> site. Nothing is applied to your report until you authorize it.
+                    <strong className="text-violet-200">{cmsLabel}</strong> site. Nothing is applied to your report until you authorize it.
                   </span>
                 </div>
                 <div className="flex items-center justify-end gap-2">
@@ -242,7 +256,7 @@ export default function AgentFixModal({
                   <button
                     type="button"
                     onClick={handleAuthorize}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 px-4 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/30"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r from-cyan-500 to-violet-500 hover:from-cyan-400 hover:to-violet-400 px-4 py-2 rounded-lg transition-all shadow-lg shadow-cyan-900/30"
                   >
                     <ShieldCheck className="h-3.5 w-3.5" /> Authorize &amp; Apply
                   </button>
@@ -251,14 +265,14 @@ export default function AgentFixModal({
             )}
 
             {applying && (
-              <div className="mt-5 pt-4 border-t border-white/10 flex items-center gap-2 text-xs text-emerald-300">
+              <div className="mt-5 pt-4 border-t border-white/10 flex items-center gap-2 text-xs text-cyan-300">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying authorized fixes to your report...
               </div>
             )}
 
             {applied && (
               <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
-                <p className="text-xs text-emerald-400 font-medium flex items-center gap-1.5">
+                <p className="text-xs text-cyan-400 font-medium flex items-center gap-1.5">
                   <CheckCircle2 className="h-3.5 w-3.5" /> Authorized and applied to your report.
                 </p>
                 <button

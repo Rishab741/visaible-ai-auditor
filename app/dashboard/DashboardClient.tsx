@@ -24,10 +24,10 @@ interface Stats {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  COMPLETED: 'bg-emerald-950/70 text-emerald-400 border border-emerald-800/70',
-  FAILED: 'bg-red-950/70 text-red-400 border border-red-800/70',
-  CRAWLING: 'bg-amber-950/70 text-amber-400 border border-amber-800/70',
-  ANALYZING: 'bg-amber-950/70 text-amber-400 border border-amber-800/70',
+  COMPLETED: 'bg-cyan-950/70 text-cyan-400 border border-cyan-800/70',
+  FAILED: 'bg-rose-950/70 text-rose-400 border border-rose-800/70',
+  CRAWLING: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
+  ANALYZING: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
   PENDING: 'bg-slate-800/70 text-slate-400 border border-slate-700/70',
 };
 
@@ -44,11 +44,11 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 type SortKey = 'recent' | 'score-desc' | 'score-asc';
 
 function scoreTextClass(score: number): string {
-  return score >= 75 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-rose-400';
+  return score >= 75 ? 'text-cyan-400' : score >= 50 ? 'text-violet-400' : 'text-rose-400';
 }
 
 function scoreBarClass(score: number): string {
-  return score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-rose-500';
+  return score >= 75 ? 'bg-cyan-400' : score >= 50 ? 'bg-violet-400' : 'bg-rose-400';
 }
 
 function formatDate(iso: string): string {
@@ -106,7 +106,7 @@ export default function DashboardClient({ rows, stats }: { rows: DashboardScan[]
         </div>
         <div className="glass-panel rounded-xl p-4">
           <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Completed</p>
-          <p className="text-2xl font-black text-emerald-400 mt-1 tabular-nums">{stats.completed}</p>
+          <p className="text-2xl font-black text-cyan-400 mt-1 tabular-nums">{stats.completed}</p>
         </div>
         <div className="glass-panel rounded-xl p-4">
           <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Failed</p>
@@ -123,7 +123,7 @@ export default function DashboardClient({ rows, stats }: { rows: DashboardScan[]
               type="button"
               onClick={() => setFilter(f.key)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-                filter === f.key ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                filter === f.key ? 'bg-cyan-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
               }`}
             >
               {f.label}
@@ -138,7 +138,7 @@ export default function DashboardClient({ rows, stats }: { rows: DashboardScan[]
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by business or URL..."
-            className="w-full bg-white/5 border border-white/10 text-white text-xs pl-9 pr-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
+            className="w-full bg-white/5 border border-white/10 text-white text-xs pl-9 pr-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-shadow"
           />
         </div>
 
@@ -147,7 +147,7 @@ export default function DashboardClient({ rows, stats }: { rows: DashboardScan[]
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
-            className="appearance-none bg-white/5 border border-white/10 text-white text-xs pl-9 pr-8 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            className="appearance-none bg-white/5 border border-white/10 text-white text-xs pl-9 pr-8 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 cursor-pointer"
           >
             <option value="recent" className="bg-slate-900">Most Recent</option>
             <option value="score-desc" className="bg-slate-900">Highest Score</option>
@@ -160,7 +160,7 @@ export default function DashboardClient({ rows, stats }: { rows: DashboardScan[]
       {rows.length === 0 ? (
         <div className="glass-panel rounded-2xl p-10 text-center text-slate-500 animate-fade-in-up">
           No audits yet.{' '}
-          <Link href="/" className="text-indigo-400 hover:text-indigo-300">
+          <Link href="/" className="text-cyan-400 hover:text-cyan-300">
             Run your first one.
           </Link>
         </div>
@@ -195,7 +195,7 @@ export default function DashboardClient({ rows, stats }: { rows: DashboardScan[]
                         router.push(`/audit/${scan.id}`);
                       }
                     }}
-                    className="border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors group cursor-pointer focus-visible:outline-none focus-visible:bg-white/[0.04] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-500"
+                    className="border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors group cursor-pointer focus-visible:outline-none focus-visible:bg-white/[0.04] focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan-500"
                   >
                     <td className="px-5 py-3.5 max-w-0">
                       <p className="text-sm font-medium text-white truncate">{scan.hotelName || scan.targetUrl}</p>

@@ -9,7 +9,7 @@ export const investigatorEvalCases: EvalCase[] = [
       const start = Date.now();
       const pages = await investigateGaps({
         targetUrl: 'https://example.com',
-        presentPageTypes: new Set(['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES', 'CONTACT']),
+        presentPageTypes: new Set(['OFFERINGS', 'ABOUT', 'LOCATION', 'POLICIES']),
         alreadyCrawledUrls: new Set(),
       });
       const durationMs = Date.now() - start;
@@ -28,7 +28,7 @@ export const investigatorEvalCases: EvalCase[] = [
 
       const pages = await investigateGaps({
         targetUrl,
-        presentPageTypes: new Set(['OFFERINGS']), // deliberately missing ABOUT/LOCATION/POLICIES/CONTACT
+        presentPageTypes: new Set(['OFFERINGS']), // deliberately missing ABOUT/LOCATION/POLICIES
         alreadyCrawledUrls,
       });
 

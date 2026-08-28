@@ -55,6 +55,9 @@ export const GOOD_SITE: { pages: ExtractedPageData[]; pageTypes: Map<string, str
       schemaJsonLd: [FAQ_SCHEMA],
       markdown: 'Cancellation policy. Check-in: 3:00pm. Check-out: 11:00am.',
     }),
+    // Not one of the required categories (contact info is folded into
+    // LOCATION) — included to prove an extra, non-required page doesn't
+    // hurt PAGE_COVERAGE.
     page({ url: 'https://example.com/contact', markdown: 'Contact us. Check-in: 3:00pm.' }),
   ],
   pageTypes: new Map([
