@@ -1,13 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { startAuditScan, reapAllStaleScans } from '@/lib/pipeline';
+import { NextRequest, NextResponse, after } from 'next/server';
+import { startAuditScan, driveAuditScan, reapAllStaleScans } from '@/lib/pipeline';
 import { prisma } from '@/lib/prisma';
 
-// startAuditScan only resolves, checks the cache, and discovers/prioritizes
-// URLs -- no full-page crawling or LLM analysis happens here anymore (that's
-// stepAuditScan, called repeatedly from app/api/audit/[id]/step/route.ts).
-// This should return in single-digit seconds; 30s is generous headroom, not
-// a budget this route is expected to need.
-export const maxDuration = 30;
+// startAuditScan itself (resolve, cache-check, discover/prioritize URLs, no
+// crawling) still returns in single-digit seconds -- the client gets its
+// response immediately. maxDuration is 60 (not 30) because of the after()
+// call below: once the response is sent, this invocation keeps running in
+// the background via Vercel's waitUntil to self-drive real crawl/analysis
+// progress, so a scan keeps advancing even if the client that started it
+// never calls /step again (closed tab, dead network, a demo laptop going to
+// sleep). Client polling (RunningClient.tsx) still drives the visible
+// progress UI independently -- this is a resilience backstop underneath it.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,6 +22,10 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await startAuditScan(url.trim(), { forceRefresh: forceRefresh === true });
+    if (!result.fromCache) {
+      const deadline = Date.now() + 50_000; // margin under the 60s ceiling this invocation shares with the response above
+      after(() => driveAuditScan(result.id, deadline));
+    }
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error('Audit Pipeline Error:', error);

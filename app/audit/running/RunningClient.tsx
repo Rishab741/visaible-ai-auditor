@@ -63,8 +63,10 @@ export default function RunningClient() {
     const pollStartTime = Date.now();
     let consecutiveLocked = 0;
     let consecutiveErrors = 0;
+    let activeScanId: string | null = null;
 
     async function pollStep(id: string) {
+      activeScanId = id;
       if (cancelled) return;
 
       if (Date.now() - pollStartTime > MAX_WALL_CLOCK_MS) {
@@ -139,9 +141,25 @@ export default function RunningClient() {
 
     start();
 
+    // Backgrounded tabs get their setTimeout intervals throttled by the
+    // browser (sometimes heavily, on mobile or after long enough in the
+    // background) -- a demo where the presenter switches away mid-audit and
+    // back can otherwise leave this looking stalled well past when a poll
+    // was actually due. Firing an immediate poll on refocus, on top of the
+    // server's own background self-driving (see driveAuditScan in
+    // lib/pipeline.ts), closes that gap from the client side too.
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible' && activeScanId && !cancelled) {
+        if (timeoutId) clearTimeout(timeoutId);
+        pollStep(activeScanId);
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [q, forceRefresh, resumeId, router]);
 

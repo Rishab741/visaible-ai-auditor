@@ -318,6 +318,35 @@ export async function stepAuditScan(scanId: string): Promise<StepResult> {
   }
 }
 
+/**
+ * Keeps calling stepAuditScan in a loop until the scan finishes, gets
+ * claimed by someone else (another poll, or another concurrent drive loop --
+ * back off rather than fight over the lock), or the deadline passes.
+ * Intended to run inside Next's `after()` in the API routes, so a scan keeps
+ * making real progress even if the client that kicked it off never calls
+ * /step again -- a closed tab, a dead network, a laptop going to sleep
+ * mid-demo. Client polling still happens independently and is what drives
+ * the progress UI; this is a resilience backstop, not a replacement for it,
+ * and the two safely interleave through the same claim lock.
+ *
+ * `deadline` is an absolute timestamp (Date.now()-based), not a duration --
+ * callers should derive it from their own route's entry time with margin
+ * under maxDuration, since `after()` callbacks share the same invocation
+ * lifetime as the request that scheduled them.
+ */
+export async function driveAuditScan(scanId: string, deadline: number): Promise<void> {
+  while (Date.now() < deadline) {
+    let result: StepResult;
+    try {
+      result = await stepAuditScan(scanId);
+    } catch (error) {
+      console.error(`[audit ${scanId}] background drive stopped on error:`, error);
+      return;
+    }
+    if (result.done || result.locked) return;
+  }
+}
+
 async function stepCrawl(scan: AuditScanRow): Promise<StepResult> {
   const crawlUrls = (scan.crawlUrls as string[] | null) ?? [];
   const failedUrls = (scan.crawlFailedUrls as string[] | null) ?? [];
