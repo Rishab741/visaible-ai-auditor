@@ -347,6 +347,33 @@ export async function driveAuditScan(scanId: string, deadline: number): Promise<
   }
 }
 
+/**
+ * Finds every currently non-terminal scan and drives each one forward,
+ * sharing one overall deadline across the batch. This is the backstop for
+ * the one real gap driveAuditScan alone can't close: a single after()
+ * continuation only gets ~50s of background budget from whatever request
+ * triggered it, and if a scan's slowest single step (typically the ANALYZING
+ * LLM call) doesn't finish inside that window and nobody -- no client poll,
+ * no other request -- ever triggers a fresh continuation, it just sits there
+ * with a stale claim lock until the ABANDONED_MS reaper eventually kills it.
+ * Callable from the daily Vercel Cron (coarse, but a real floor) or an
+ * external low-cost pinger (e.g. a free 1-minute cron-job.org ping) for
+ * tighter recovery -- see app/api/cron/advance-active-scans/route.ts.
+ */
+export async function driveAllActiveScans(deadline: number): Promise<{ scansTouched: number }> {
+  const activeScans = await prisma.auditScan.findMany({
+    where: { status: { in: NON_TERMINAL_STATUSES } },
+    select: { id: true },
+  });
+  let scansTouched = 0;
+  for (const { id } of activeScans) {
+    if (Date.now() >= deadline) break;
+    await driveAuditScan(id, deadline);
+    scansTouched++;
+  }
+  return { scansTouched };
+}
+
 async function stepCrawl(scan: AuditScanRow): Promise<StepResult> {
   const crawlUrls = (scan.crawlUrls as string[] | null) ?? [];
   const failedUrls = (scan.crawlFailedUrls as string[] | null) ?? [];
