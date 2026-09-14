@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import { safeFetch } from './net';
 
 // How many URLs discovery is allowed to *enumerate* — cheap (a map/sitemap
 // call or link-scraping, no full-page fetches), so this can stay generous.
@@ -14,6 +15,14 @@ import * as cheerio from 'cheerio';
 const MAX_DISCOVERED_URLS = 60;
 const MAX_BFS_DEPTH = 3;
 const DISCOVERY_CONCURRENCY = 8;
+// mapWithFirecrawl previously had no timeout at all -- unlike every other
+// network call in this file, a plain fetch() with no AbortController. Measured
+// live at 30+s on a real 57-page site (Firecrawl's /v1/map crawls the site's
+// own link graph server-side, so its latency scales with the target site, not
+// with us) -- entirely spent before startAuditScan even returns a scan id to
+// the client. Bounding it means a slow map falls through to the sitemap/BFS
+// fallback instead of stalling the whole audit on it.
+const MAP_TIMEOUT_MS = 10_000;
 
 const SKIP_EXTENSIONS = /\.(jpe?g|png|gif|svg|webp|ico|css|js|pdf|zip|docx?|xlsx?|mp4|mp3|woff2?|ttf|eot|xml|json)$/i;
 const SKIP_PATH_PATTERNS = /\/(wp-admin|wp-login|wp-json|cart|checkout|my-account|login|signup|search)(\/|$)/i;
@@ -72,14 +81,25 @@ function inScope(pathname: string, scopePrefix: string): boolean {
 }
 
 async function mapWithFirecrawl(url: string, key: string): Promise<string[]> {
-  const res = await fetch('https://api.firecrawl.dev/v1/map', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ url, limit: MAX_DISCOVERED_URLS }),
-  });
-  const data = await res.json();
-  if (!data.success || !Array.isArray(data.links)) return [];
-  return data.links.map((link: { url: string }) => link.url).filter(Boolean);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MAP_TIMEOUT_MS);
+  try {
+    const res = await fetch('https://api.firecrawl.dev/v1/map', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      // `timeout` (ms) asks Firecrawl to return whatever it's found so far
+      // within budget instead of erroring outright -- a graceful bound on
+      // top of the hard AbortController cutoff below, which exists in case
+      // Firecrawl doesn't honor it or the connection itself hangs.
+      body: JSON.stringify({ url, limit: MAX_DISCOVERED_URLS, timeout: MAP_TIMEOUT_MS }),
+      signal: controller.signal,
+    });
+    const data = await res.json();
+    if (!data.success || !Array.isArray(data.links)) return [];
+    return data.links.map((link: { url: string }) => link.url).filter(Boolean);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function readSitemap(origin: string): Promise<string[]> {
@@ -241,7 +261,7 @@ async function fetchText(url: string, retries = 1): Promise<string | null> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, { headers: UA_HEADERS, signal: controller.signal });
+      const res = await safeFetch(url, { headers: UA_HEADERS, signal: controller.signal });
       if (res.ok) return await res.text();
       if (attempt === retries) return null;
     } catch {

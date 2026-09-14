@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateImplementationSnippet, NotApplicableError } from '@/lib/snippetAgent';
+import { checkRateLimit, clientIp, rateLimitResponse } from '@/lib/rateLimit';
 
 const GENERATION_CONCURRENCY = 3;
+// Each call can spend one LLM call per pending suggestion on a scan -- no
+// auth in front of this route (only a hard-to-guess scan id), so cap how
+// often it can be invoked at all rather than relying on that obscurity.
+const SNIPPET_RATE_LIMIT = 10;
+const SNIPPET_RATE_WINDOW_MS = 10 * 60 * 1000;
 
 // Same reasoning as app/api/audit/route.ts: batched sequential LLM calls
 // (one per pending suggestion, GENERATION_CONCURRENCY at a time) can run
@@ -15,8 +21,13 @@ export const maxDuration = 60;
  * single "Generate Implementation Fixes" action rather than per-card buttons.
  * Suggestions that genuinely aren't snippet-shaped are skipped, not failed.
  */
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { allowed, retryAfterMs } = await checkRateLimit(`snippets:${clientIp(req)}`, SNIPPET_RATE_LIMIT, SNIPPET_RATE_WINDOW_MS);
+    if (!allowed) {
+      return rateLimitResponse(retryAfterMs, 'Too many fix-generation requests from this address -- try again shortly.');
+    }
+
     const { id } = await params;
 
     const scan = await prisma.auditScan.findUnique({

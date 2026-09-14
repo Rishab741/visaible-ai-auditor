@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { startAuditScan, driveAuditScan, reapAllStaleScans } from '@/lib/pipeline';
+import { startAuditScan, driveAuditScan, scheduleDriveAllActiveScans, reapAllStaleScans } from '@/lib/pipeline';
 import { prisma } from '@/lib/prisma';
+import { checkRateLimit, clientIp, rateLimitResponse } from '@/lib/rateLimit';
+
+// Each POST spends a real Firecrawl call plus multiple LLM calls (more, on
+// forceRefresh, which bypasses the scan cache entirely) -- with no auth in
+// front of this route, an unbounded loop of requests has no ceiling on cost
+// otherwise. 8 new audits per 10 minutes per IP is generous for a real user
+// clicking around, not for a script.
+const AUDIT_RATE_LIMIT = 8;
+const AUDIT_RATE_WINDOW_MS = 10 * 60 * 1000;
 
 // startAuditScan itself (resolve, cache-check, discover/prioritize URLs, no
 // crawling) still returns in single-digit seconds -- the client gets its
@@ -11,10 +20,17 @@ import { prisma } from '@/lib/prisma';
 // never calls /step again (closed tab, dead network, a demo laptop going to
 // sleep). Client polling (RunningClient.tsx) still drives the visible
 // progress UI independently -- this is a resilience backstop underneath it.
+// Also covers GET's own, smaller after() background drive below (route
+// segment config applies to the whole file, not per-method).
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
+    const { allowed, retryAfterMs } = await checkRateLimit(`audit:${clientIp(req)}`, AUDIT_RATE_LIMIT, AUDIT_RATE_WINDOW_MS);
+    if (!allowed) {
+      return rateLimitResponse(retryAfterMs, 'Too many audits requested from this address -- try again shortly.');
+    }
+
     const { url, forceRefresh } = await req.json();
 
     if (!url || typeof url !== 'string') {
@@ -40,6 +56,11 @@ export async function GET() {
     // polling should still read as FAILED here rather than hanging as
     // "in progress" forever.
     await reapAllStaleScans();
+    // Also nudge any still-active scan forward in the background. The daily
+    // Vercel Cron (see app/api/cron/advance-active-scans) is only a floor for
+    // zero-traffic periods; piggybacking on every real homepage visit here
+    // closes the gap far tighter than once-a-day ever could, for free.
+    scheduleDriveAllActiveScans();
     const latestScans = await prisma.auditScan.findMany({
       take: 5,
       orderBy: { createdAt: 'desc' },

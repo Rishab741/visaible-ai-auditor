@@ -1,3 +1,4 @@
+import { after } from 'next/server';
 import { Prisma } from '@/app/generated/prisma/client';
 import { crawlBusinessPage, ExtractedPageData, PageStructuralSignals } from './crawler';
 import { discoverPages, normalizeUrl } from './discovery';
@@ -6,6 +7,7 @@ import { analyzeBusinessWebsite } from './analyzer';
 import { resolveBusinessWebsite } from './resolver';
 import { prisma } from './prisma';
 import { PIPELINE_VERSION } from './version';
+import { assertPublicHttpUrl } from './net';
 
 // The real crawl-time budget (discovery can enumerate far more — see
 // MAX_DISCOVERED_URLS in lib/discovery.ts — but each of these costs a real
@@ -172,6 +174,12 @@ export async function startAuditScan(rootQuery: string, options: { forceRefresh?
 
   const targetUrl = normalizeUrl(resolvedUrl);
 
+  // Fail fast, with a clear message, rather than letting a private/internal
+  // target limp through discovery and crawling only to hit the same guard
+  // deep inside every individual fetch call (lib/net.ts's safeFetch, wired
+  // into lib/crawler.ts and lib/discovery.ts as defense-in-depth).
+  await assertPublicHttpUrl(targetUrl);
+
   if (!options.forceRefresh) {
     const cachedScan = await prisma.auditScan.findFirst({
       where: {
@@ -195,6 +203,12 @@ export async function startAuditScan(rootQuery: string, options: { forceRefresh?
   }
 
   const urlsToCrawl = prioritizeForCrawl(discoveredUrls, targetUrl, MAX_CRAWL_PAGES);
+  // Everything discovery found but the initial budget didn't pick -- kept
+  // around so stepCrawl can top up the crawl list if some of the picks above
+  // fail or turn out too thin, instead of just quietly crawling fewer pages
+  // than the budget intended (see the crawlBackfillUrls schema comment).
+  const pickedSet = new Set(urlsToCrawl);
+  const crawlBackfillUrls = discoveredUrls.filter((u) => !pickedSet.has(u));
 
   const scan = await prisma.auditScan.create({
     data: {
@@ -202,6 +216,7 @@ export async function startAuditScan(rootQuery: string, options: { forceRefresh?
       status: 'CRAWLING',
       pipelineVersion: PIPELINE_VERSION,
       crawlUrls: urlsToCrawl,
+      crawlBackfillUrls,
     },
   });
   console.log(`[audit ${scan.id}] started for ${targetUrl} -- ${urlsToCrawl.length} of ${discoveredUrls.length} discovered URLs queued`);
@@ -374,9 +389,24 @@ export async function driveAllActiveScans(deadline: number): Promise<{ scansTouc
   return { scansTouched };
 }
 
+/**
+ * Schedules driveAllActiveScans as a background continuation via Next's
+ * after(), for read paths (the dashboard, the homepage's recent-scans list)
+ * that see active scans as a side effect of normal traffic. Piggybacking on
+ * every such pageview closes the recovery gap far tighter than the daily
+ * Vercel Cron alone can (see driveAllActiveScans's own doc comment) --
+ * pulled out as a named helper, rather than each call site computing
+ * `Date.now() + budgetMs` inline, so a Server Component's render body doesn't
+ * itself contain a direct call to an impure builtin.
+ */
+export function scheduleDriveAllActiveScans(budgetMs = 20_000): void {
+  after(() => driveAllActiveScans(Date.now() + budgetMs));
+}
+
 async function stepCrawl(scan: AuditScanRow): Promise<StepResult> {
   const crawlUrls = (scan.crawlUrls as string[] | null) ?? [];
   const failedUrls = (scan.crawlFailedUrls as string[] | null) ?? [];
+  const backfillUrls = (scan.crawlBackfillUrls as string[] | null) ?? [];
   const crawledRows = await prisma.scannedPage.findMany({ where: { auditScanId: scan.id }, select: { url: true } });
   // "Resolved" = every URL that's already had its one attempt, success or
   // not -- excluding only successes here would mean a permanently-failing
@@ -386,6 +416,23 @@ async function stepCrawl(scan: AuditScanRow): Promise<StepResult> {
   const remaining = deriveRemainingCrawlUrls(crawlUrls, resolvedUrls);
 
   if (remaining.length === 0) {
+    // Some of the originally-selected picks may have failed or been too thin
+    // to use -- top up from the discovered-but-unselected pool so a handful
+    // of dead picks don't just shrink the total successfully-crawled page
+    // count below the intended budget (see crawlBackfillUrls schema comment).
+    const shortfall = crawlUrls.length - crawledRows.length;
+    if (shortfall > 0 && backfillUrls.length > 0) {
+      const topUp = backfillUrls.slice(0, shortfall);
+      const stillBackfill = backfillUrls.slice(shortfall);
+      const newCrawlUrls = [...crawlUrls, ...topUp];
+      await prisma.auditScan.update({
+        where: { id: scan.id },
+        data: { crawlUrls: newCrawlUrls, crawlBackfillUrls: stillBackfill, processingSince: null },
+      });
+      console.log(`[audit ${scan.id}] crawl backfill -- topping up ${topUp.length} URL(s) from the discovery pool to cover a shortfall of ${shortfall}`);
+      return { id: scan.id, status: 'CRAWLING', done: false, progress: { crawled: resolvedUrls.length, total: newCrawlUrls.length } };
+    }
+
     await prisma.auditScan.update({
       where: { id: scan.id },
       data: { status: 'INVESTIGATING', processingSince: null },

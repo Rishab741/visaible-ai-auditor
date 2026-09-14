@@ -1,13 +1,22 @@
 import { LayoutDashboard } from 'lucide-react';
 import { prisma } from '@/lib/prisma';
-import { reapAllStaleScans } from '@/lib/pipeline';
+import { reapAllStaleScans, scheduleDriveAllActiveScans } from '@/lib/pipeline';
 import TopNav from '@/app/components/TopNav';
 import DashboardClient, { type DashboardScan } from './DashboardClient';
+
+// Room for the background drive below on top of this page's own DB reads
+// (milliseconds).
+export const maxDuration = 30;
 
 export default async function DashboardPage() {
   // Reap anything stuck before showing it -- see lib/pipeline.ts's
   // reapAllStaleScans for why this can't just wait for a background cron.
   await reapAllStaleScans();
+  // Also nudge any still-active scan forward in the background -- see the
+  // matching comment in app/api/audit/route.ts's GET handler. The dashboard
+  // is exactly the page someone reloads to check on a running audit, so this
+  // is real traffic worth piggybacking on.
+  scheduleDriveAllActiveScans();
 
   const scans = await prisma.auditScan.findMany({
     orderBy: { updatedAt: 'desc' },

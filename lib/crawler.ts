@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import type { CheerioAPI } from 'cheerio';
+import { safeFetch } from './net';
 
 export interface PageStructuralSignals {
   h1Count: number;
@@ -88,7 +89,7 @@ async function fetchWithRetry(url: string, init: RequestInit, retries = 1): Prom
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, { ...init, signal: controller.signal });
+      const res = await safeFetch(url, { ...init, signal: controller.signal });
       if (res.ok || attempt === retries) return res;
       lastError = new Error(`HTTP ${res.status}`);
     } catch (err) {

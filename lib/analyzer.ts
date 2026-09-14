@@ -1,6 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { reasoningModel } from './ai';
+import { fastModel } from './ai';
 import { ExtractedPageData } from './crawler';
 import { computeSiteSignals, CategoryScores, HardFinding } from './signals';
 import { stableSeed } from './utils';
@@ -138,7 +138,23 @@ ${JSON.stringify(preparedPages, null, 2)}
   const contentFingerprint = preparedPages.map((p) => `${p.url}:${p.markdownExcerpt.length}`).join('|');
 
   const { object } = await generateObject({
-    model: reasoningModel,
+    // reasoningModel (gemini-pro-latest) used to run this call and floored at
+    // ~42-49s regardless of page count (3 pages took as long as 19) and
+    // regardless of the hardFindingWriteups exact-length constraint (removing
+    // it changed nothing) -- it's the model's own internal reasoning budget
+    // for this task, not input size or schema strictness. Even at its lowest
+    // accepted thinking level ("low" -- 0/"minimal" are rejected outright) it
+    // still ran ~25s and cost ~2.5x more per call (real measured tokens: 65k
+    // in/2.5k out vs fastModel's 65k in/4k out, at gemini-pro-latest's
+    // published $2.00/$12.00 per-million in/out vs gemini-flash-latest's
+    // $0.75/$3.75 -- https://ai.google.dev/gemini-api/docs/pricing).
+    // fastModel here instead: measured ~14-17s, and head-to-head on the same
+    // real scan its additionalSuggestions were not lower quality -- just
+    // different (it caught a broken <title> tag and a real cross-page NAP
+    // address conflict pro's run missed both times). The deterministic
+    // hardFindingWriteups content this audit is actually scored on doesn't
+    // depend on which model writes the prose either way.
+    model: fastModel,
     schema: buildAnalysisReportSchema(signals.hardFindings.length),
     system: systemPrompt,
     prompt: userPrompt,

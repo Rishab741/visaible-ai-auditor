@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm ci`'s postinstall hook runs `prisma generate`, which only reads
+      # prisma/schema.prisma -- no live DATABASE_URL needed for that.
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      # Only the fast tier: deterministic, no network, no API keys needed.
+      # The live-tier suites (resolver/pipeline/investigator's real-site
+      # cases) hit real APIs and cost real money per run -- deliberately kept
+      # out of CI, run manually via `npm run eval:live` instead.
+      - run: npm run eval:fast

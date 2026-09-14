@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateImplementationSnippet, NotApplicableError } from '@/lib/snippetAgent';
+import { checkRateLimit, clientIp, rateLimitResponse } from '@/lib/rateLimit';
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// Same reasoning as the bulk route (app/api/audit/[id]/snippets) -- one LLM
+// call per request, no auth in front of it. A higher ceiling than the bulk
+// route since this is the idempotent per-card version (already-generated
+// suggestions short-circuit before spending a call at all).
+const SNIPPET_RATE_LIMIT = 20;
+const SNIPPET_RATE_WINDOW_MS = 10 * 60 * 1000;
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { allowed, retryAfterMs } = await checkRateLimit(`snippet:${clientIp(req)}`, SNIPPET_RATE_LIMIT, SNIPPET_RATE_WINDOW_MS);
+    if (!allowed) {
+      return rateLimitResponse(retryAfterMs, 'Too many fix-generation requests from this address -- try again shortly.');
+    }
+
     const { id } = await params;
 
     const suggestion = await prisma.optimizationSuggestion.findUnique({
