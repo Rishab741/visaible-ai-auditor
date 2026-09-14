@@ -547,6 +547,7 @@ async function stepAnalyze(scan: AuditScanRow): Promise<StepResult> {
         issue: item.issue,
         impactReason: item.impactReason,
         suggestedFix: item.suggestedFix,
+        plainSummary: item.plainSummary,
         affectedUrls: JSON.stringify(item.affectedUrls),
         currentSnippet: item.currentSnippet || null,
         confidenceScore: item.confidenceScore,

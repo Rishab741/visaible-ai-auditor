@@ -22,10 +22,17 @@ const CategoryEnum = z.enum([
 // as part of this same call, bundling a distinct "act on this fix" capability
 // into every plain search. That's now its own on-demand, per-suggestion agent
 // — see lib/snippetAgent.ts — triggered by an explicit user action instead.
+// Kept out of the shared type below and spelled out on both write-up schemas
+// instead — each needs its own wording tuned to the finding it's attached to,
+// but the no-jargon contract is identical either way.
+const PLAIN_SUMMARY_DESCRIPTION =
+  'One to two short sentences, in plain everyday English, explaining what\'s wrong and why it matters — written for a small business owner with zero technical background. Never use the words Schema.org, JSON-LD, HTML, API, markup, or any code/property names. Example: instead of "Missing HotelRoom Schema.org markup", write "AI assistants can\'t tell what\'s included in your rooms because that information isn\'t tagged in a way they can read."';
+
 const HardFindingWriteupSchema = z.object({
   issue: z.string().describe('Precise description of the verified issue, referencing the given fact'),
   impactReason: z.string().describe('Why this reduces AI engine (ChatGPT, Perplexity, Gemini) extractability, confidence, or recommendation likelihood'),
   suggestedFix: z.string().describe('Clear, actionable change or structured schema snippet to resolve the issue'),
+  plainSummary: z.string().describe(PLAIN_SUMMARY_DESCRIPTION),
 });
 
 const AdditionalSuggestionSchema = z.object({
@@ -34,6 +41,7 @@ const AdditionalSuggestionSchema = z.object({
   issue: z.string().describe('Precise description of a qualitative issue not covered by the deterministic findings (e.g. marketing fluff, mixed-intent pages)'),
   impactReason: z.string().describe('Why this reduces AI engine extractability, confidence, or recommendation likelihood'),
   suggestedFix: z.string().describe('Clear, actionable change to resolve the issue'),
+  plainSummary: z.string().describe(PLAIN_SUMMARY_DESCRIPTION),
   affectedUrls: z.array(z.string()).describe('Crawled URLs where this issue occurs'),
   currentSnippet: z.string().optional().describe('Direct quote of the problematic text from the site if applicable'),
   confidenceScore: z.number().min(0).max(1).describe('Model confidence score between 0 and 1'),
@@ -63,6 +71,7 @@ export interface SuggestionItem {
   issue: string;
   impactReason: string;
   suggestedFix: string;
+  plainSummary: string;
   affectedUrls: string[];
   currentSnippet?: string;
   confidenceScore: number;
@@ -116,11 +125,15 @@ Your mission is to audit local business websites — hotels, restaurants, retail
 A deterministic rules engine has already scored this site and identified a fixed list of verified findings — schema gaps, missing page categories, structural issues, and cross-page factual conflicts. These are facts, not opinions: do not contradict, soften, or embellish them.
 
 Your job:
-1. For EACH deterministic finding listed below, write a precise "issue" description, "impactReason" (why it hurts AI extractability/trust), and "suggestedFix" (specific, actionable — name the exact Schema.org type/property if relevant). Output exactly one write-up per finding, in the same order.
+1. For EACH deterministic finding listed below, write a precise "issue" description, "impactReason" (why it hurts AI extractability/trust), and "suggestedFix" (specific, actionable). These three fields are for a developer or technical reader. Output exactly one write-up per finding, in the same order.
+   - For a CONTENT_CLARITY, PAGE_COVERAGE, or INTERNAL_CONSISTENCY finding, "suggestedFix" must describe a plain content/text change only (what to write, and where) — no Schema.org, JSON-LD, or code-level detail, even though "issue"/"impactReason" can still be precise. These are the categories a non-technical site editor is told they can fix themselves; a fix instruction that suddenly requires editing schema markup breaks that promise.
+   - For a STRUCTURED_DATA or STRUCTURAL_SIGNALS finding, "suggestedFix" should be specific and technical — name the exact Schema.org type/property or structural change required.
 2. Separately, scan the crawled content for genuinely qualitative issues the rules engine cannot detect: marketing fluff without factual anchors ("luxurious oasis" with no pool dimensions/times/configs), pages mixing multiple intents, vague experiential language, unstated policies. Only add these as "additionalSuggestions" — do not repeat anything already covered by a deterministic finding.
+3. For EVERY finding (both the deterministic write-ups and the additionalSuggestions), ALSO write "plainSummary" — a completely separate, jargon-free explanation of the same finding for the actual business owner reading this report, who is not technical. See the field description for the exact rules and a worked example.
 
 Guidelines:
 - Suggestions MUST be specific and reference actual facts from the provided text — never generic ("add more schema" is not acceptable; name the exact type/property).
+- "plainSummary" is a different audience, not a shorter version of "issue" — it must never contain the technical vocabulary that "issue"/"suggestedFix" are required to use.
 - Do not invent a numeric score anywhere; none is requested.
 `;
 
@@ -171,6 +184,7 @@ ${JSON.stringify(preparedPages, null, 2)}
       issue: writeup.issue,
       impactReason: writeup.impactReason,
       suggestedFix: writeup.suggestedFix,
+      plainSummary: writeup.plainSummary,
       affectedUrls: finding.affectedUrls,
       confidenceScore: 1, // deterministically verified, not model-estimated
     };

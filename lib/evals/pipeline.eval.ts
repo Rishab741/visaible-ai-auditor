@@ -127,6 +127,11 @@ export const pipelineEvalCases: EvalCase[] = [
         assert(s.issue.trim().length > 0, 'every suggestion must have non-empty issue text');
         assert(s.impactReason.trim().length > 0, 'every suggestion must have non-empty impactReason text');
         assert(s.suggestedFix.trim().length > 0, 'every suggestion must have non-empty suggestedFix text');
+        assert(s.plainSummary.trim().length > 0, 'every suggestion must have non-empty plainSummary text');
+        assert(
+          !/schema\.org|json-ld|html|\bapi\b/i.test(s.plainSummary),
+          `plainSummary must be jargon-free, got: "${s.plainSummary}"`
+        );
         assert(s.affectedUrls.length > 0, 'every suggestion must reference at least one affected URL');
         assertInRange(s.confidenceScore, 0, 1, 'suggestion.confidenceScore');
       }

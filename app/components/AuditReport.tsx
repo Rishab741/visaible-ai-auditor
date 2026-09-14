@@ -5,11 +5,8 @@ import Link from 'next/link';
 import {
   Sparkles,
   ExternalLink,
-  Layers,
-  FileText,
   Check,
   Building2,
-  ShieldCheck,
   History,
   RefreshCw,
   ClipboardList,
@@ -18,11 +15,25 @@ import {
   Bot,
   ChevronsDownUp,
   ChevronsUpDown,
+  ChevronDown,
   FilterX,
+  Target,
+  SlidersHorizontal,
 } from 'lucide-react';
 import AgentFixModal, { AGENT_NAME, type AgentFixResult } from './AgentFixModal';
-import SuggestionCard, { GRID_COLS } from './SuggestionCard';
-import { parseAffectedUrls } from './suggestionUtils';
+import SuggestionCard from './SuggestionCard';
+import {
+  parseAffectedUrls,
+  getActionability,
+  pickTopPriorities,
+  scoreInterpretation,
+  CATEGORY_KEYS,
+  CATEGORY_LABELS,
+  CATEGORY_DESCRIPTIONS,
+  SEVERITY_LABELS,
+  SEVERITY_DESCRIPTIONS,
+  ACTIONABILITY_LABELS,
+} from './suggestionUtils';
 
 export interface Suggestion {
   id: string;
@@ -31,6 +42,7 @@ export interface Suggestion {
   issue: string;
   impactReason: string;
   suggestedFix: string;
+  plainSummary: string | null;
   implementationSnippet?: string | null;
   affectedUrls: string;
   currentSnippet?: string | null;
@@ -70,42 +82,12 @@ const PAGE_TYPE_LABELS: Record<string, string> = {
   GENERAL: 'Other Pages',
 };
 
-const SEVERITY_STYLES: Record<Suggestion['severity'], string> = {
-  HIGH: 'bg-rose-950/70 text-rose-400 border border-rose-800/70',
-  MEDIUM: 'bg-violet-950/70 text-violet-400 border border-violet-800/70',
-  LOW: 'bg-cyan-950/70 text-cyan-400 border border-cyan-800/70',
-};
-
-const CATEGORIES = [
-  { key: 'ALL', label: 'All Issues' },
-  { key: 'CONTENT_CLARITY', label: 'Content Clarity' },
-  { key: 'INTERNAL_CONSISTENCY', label: 'Cross-Page Consistency' },
-  { key: 'STRUCTURED_DATA', label: 'Schema & Structured Data' },
-  { key: 'PAGE_COVERAGE', label: 'Coverage & Gaps' },
-  { key: 'STRUCTURAL_SIGNALS', label: 'Structural Extraction' },
-];
-
-const CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  ALL: 'Every finding, across all five audit categories.',
-  CONTENT_CLARITY: 'Whether facts (hours, prices, policies) are stated as plain extractable text, not buried in images or vague copy.',
-  INTERNAL_CONSISTENCY: 'Whether the same fact (hours, address, pricing) agrees across every page it appears on.',
-  STRUCTURED_DATA: 'Presence and completeness of Schema.org JSON-LD — LocalBusiness type, offerings, FAQ.',
-  PAGE_COVERAGE: 'Whether the expected page categories (offerings, about, location, policies, contact) actually exist.',
-  STRUCTURAL_SIGNALS: 'Heading structure, list/table usage, and paragraph density that make a page machine-parseable.',
-};
-
-const SEVERITY_DESCRIPTIONS: Record<Suggestion['severity'], string> = {
-  HIGH: 'Actively blocks AI engines from extracting or trusting this fact.',
-  MEDIUM: "Degrades confidence or completeness, but doesn't block extraction outright.",
-  LOW: "Minor polish — unlikely to change whether an AI engine cites this business.",
-};
-
 function scoreBarClass(score: number): string {
-  return score >= 75 ? 'bg-cyan-400' : score >= 50 ? 'bg-violet-400' : 'bg-rose-400';
+  return score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-rose-500';
 }
 
 function scoreStrokeColor(score: number): string {
-  return score >= 75 ? '#22d3ee' : score >= 50 ? '#a78bfa' : '#fb7185';
+  return score >= 75 ? '#10b981' : score >= 50 ? '#f59e0b' : '#f43f5e';
 }
 
 function buildReportMarkdown(data: AuditScanResult): string {
@@ -113,12 +95,13 @@ function buildReportMarkdown(data: AuditScanResult): string {
   lines.push(`# AI Visibility Audit — ${data.hotelName || 'Local Business'}`);
   lines.push(`${data.targetUrl}`);
   lines.push('');
-  lines.push(`**Overall AI Readability Score:** ${data.overallScore}/100`);
+  lines.push(`**Overall AI Readability Score:** ${data.overallScore}/100 — ${scoreInterpretation(data.overallScore)}`);
   if (data.categoryScores) {
     lines.push('');
     lines.push('**Score Breakdown:**');
-    for (const [key, score] of Object.entries(data.categoryScores)) {
-      lines.push(`- ${key.replace(/_/g, ' ')}: ${score}/100`);
+    for (const key of CATEGORY_KEYS) {
+      if (data.categoryScores[key] === undefined) continue;
+      lines.push(`- ${CATEGORY_LABELS[key] ?? key}: ${data.categoryScores[key]}/100`);
     }
   }
   if (data.summary) {
@@ -133,10 +116,10 @@ function buildReportMarkdown(data: AuditScanResult): string {
   lines.push('## Suggestions');
   for (const s of data.suggestions) {
     lines.push('');
-    lines.push(`### [${s.severity}] ${s.category.replace(/_/g, ' ')}: ${s.issue}`);
+    lines.push(`### [${SEVERITY_LABELS[s.severity]}] ${CATEGORY_LABELS[s.category] ?? s.category}: ${s.plainSummary || s.issue}`);
     lines.push(`**Why it matters:** ${s.impactReason}`);
     lines.push('');
-    lines.push(`**Fix:** ${s.suggestedFix}`);
+    lines.push(`**Fix (${ACTIONABILITY_LABELS[getActionability(s.category)]}):** ${s.suggestedFix}`);
     if (s.implementationSnippet) {
       lines.push('');
       lines.push('```');
@@ -178,7 +161,7 @@ function ScoreGauge({ score, revealed, size = 108 }: { score: number; revealed: 
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" strokeWidth={strokeWidth} className="stroke-slate-800" />
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" strokeWidth={strokeWidth} className="stroke-slate-100" />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -190,12 +173,11 @@ function ScoreGauge({ score, revealed, size = 108 }: { score: number; revealed: 
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           className="gauge-ring"
-          style={{ filter: `drop-shadow(0 0 6px ${scoreStrokeColor(score)}66)` }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-black text-white tabular-nums">{displayScore}</span>
-        <span className="text-[10px] text-slate-500 -mt-0.5">/ 100</span>
+        <span className="text-2xl font-black text-slate-900 tabular-nums">{displayScore}</span>
+        <span className="text-[10px] text-slate-400 -mt-0.5">/ 100</span>
       </div>
     </div>
   );
@@ -208,10 +190,10 @@ function CategoryScoreBar({ label, score, revealed, delayMs }: { label: string; 
   return (
     <div>
       <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-slate-300">{label}</span>
-        <span className="font-mono text-slate-400 tabular-nums">{displayScore}/100</span>
+        <span className="text-slate-600">{label}</span>
+        <span className="font-medium text-slate-500 tabular-nums">{displayScore}/100</span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-slate-800/80 overflow-hidden">
+      <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
         <div
           className={`h-full rounded-full transition-[width] duration-1000 ease-out ${scoreBarClass(score)}`}
           style={{ width: `${widthPct}%`, transitionDelay: `${delayMs}ms` }}
@@ -221,12 +203,45 @@ function CategoryScoreBar({ label, score, revealed, delayMs }: { label: string; 
   );
 }
 
+function TopPriorityCard({ item, rank, targetUrl, onView }: { item: Suggestion; rank: number; targetUrl: string; onView: () => void }) {
+  const actionability = getActionability(item.category);
+  const affectedUrls = parseAffectedUrls(item.affectedUrls);
+  const relativePath = (u: string) => u.replace(targetUrl, '') || '/';
+
+  return (
+    <button
+      type="button"
+      onClick={onView}
+      className="w-full flex items-start gap-3 bg-white rounded-xl border border-slate-200 p-4 text-left hover:border-cyan-300 hover:shadow-sm transition-all"
+    >
+      <span className="shrink-0 h-6 w-6 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center mt-0.5">{rank}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold border ${
+              actionability === 'diy' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+            }`}
+          >
+            {ACTIONABILITY_LABELS[actionability]}
+          </span>
+          {affectedUrls.length > 0 && (
+            <span className="text-[11px] text-slate-400">{affectedUrls.length === 1 ? `on ${relativePath(affectedUrls[0])}` : `on ${affectedUrls.length} pages`}</span>
+          )}
+        </div>
+        <p className="text-sm font-semibold text-slate-900 leading-snug">{item.plainSummary || item.issue}</p>
+      </div>
+    </button>
+  );
+}
+
 const ALL_SEVERITIES: Suggestion['severity'][] = ['HIGH', 'MEDIUM', 'LOW'];
 
 export default function AuditReport({ data, onRefresh, refreshing }: { data: AuditScanResult; onRefresh: () => void; refreshing: boolean }) {
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [activeSeverities, setActiveSeverities] = useState<Set<Suggestion['severity']>>(new Set(ALL_SEVERITIES));
   const [selectedPageUrl, setSelectedPageUrl] = useState('ALL');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [showPages, setShowPages] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   // Cards default collapsed — a report with a dozen fully-expanded cards
   // (each showing why/fix/snippet/origin) reads as an unscannable wall of
@@ -251,8 +266,6 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
     resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return () => clearTimeout(t);
   }, []);
-
-  const pagesCount = useCountUp(data.pages.length, revealed, 900);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -289,6 +302,22 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
     setSelectedPageUrl('ALL');
   };
 
+  // Jumps from the Top Priorities panel down to the real card in the full
+  // list below, resetting any filter that would otherwise hide it and
+  // expanding it — a shortcut into the familiar detail view rather than a
+  // second copy of the fix content.
+  const jumpToSuggestion = (id: string) => {
+    clearFilters();
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setTimeout(() => {
+      document.getElementById(`suggestion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
+
   const pendingTargets = suggestions
     .filter((s) => !s.implementationSnippet && !notApplicableIds.has(s.id))
     .map((s) => ({ id: s.id, issue: s.issue }));
@@ -319,6 +348,8 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
     severityCounts[s.severity] += 1;
   }
 
+  const topPriorities = pickTopPriorities(suggestions, 3);
+
   const filteredSuggestions = suggestions
     .filter((s) => (selectedCategory === 'ALL' ? true : s.category === selectedCategory))
     .filter((s) => activeSeverities.has(s.severity))
@@ -328,12 +359,12 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
 
   const groupedSuggestions: Array<{ key: string; label: string; items: Suggestion[] }> =
     selectedCategory === 'ALL'
-      ? CATEGORIES.filter((c) => c.key !== 'ALL' && categoryCounts[c.key] > 0).map((c) => ({
-          key: c.key,
-          label: c.label,
-          items: filteredSuggestions.filter((s) => s.category === c.key),
+      ? CATEGORY_KEYS.filter((key) => categoryCounts[key] > 0).map((key) => ({
+          key,
+          label: CATEGORY_LABELS[key],
+          items: filteredSuggestions.filter((s) => s.category === key),
         }))
-      : [{ key: selectedCategory, label: CATEGORIES.find((c) => c.key === selectedCategory)?.label ?? '', items: filteredSuggestions }];
+      : [{ key: selectedCategory, label: CATEGORY_LABELS[selectedCategory] ?? selectedCategory, items: filteredSuggestions }];
 
   const pagesByType: Array<{ type: string; label: string; pages: ScannedPage[] }> = [];
   const grouped = new Map<string, ScannedPage[]>();
@@ -347,8 +378,8 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
   }
   pagesByType.sort((a, b) => a.label.localeCompare(b.label));
 
-  // Lets the suggestion table and each row's Origin chips show a page's
-  // category (Offerings, Location, ...) alongside its URL without a lookup.
+  // Lets each row's Origin chips show a page's category (Offerings, Location,
+  // ...) alongside its URL without a lookup.
   const pageTypeByUrl = new Map(data.pages.map((p) => [p.url, p.pageType]));
   const pageFilterOptions = data.pages
     .slice()
@@ -359,139 +390,135 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
     }));
 
   return (
-    <section ref={resultsRef} className="max-w-6xl mx-auto space-y-8 scroll-mt-6">
+    <section ref={resultsRef} className="max-w-5xl mx-auto space-y-6 scroll-mt-6">
       {/* Nav */}
       <div className="animate-fade-in-up">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 transition-colors">
           <ArrowLeft className="h-4 w-4" /> Back to Search
         </Link>
       </div>
 
-      {/* Executive Scorecard */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in-up">
-        <div className="glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform">
-          <div className="min-w-0">
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Business</p>
-            <h2 className="text-xl font-bold text-white mt-1 flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-cyan-400 shrink-0" />
-              <span className="truncate">{data.hotelName || 'Local Business'}</span>
-            </h2>
+      {/* Report cover: business identity + score + plain-language read */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm animate-fade-in-up">
+        <div className="flex flex-col md:flex-row md:items-center gap-6 md:gap-10">
+          <ScoreGauge score={data.overallScore} revealed={revealed} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-cyan-700 uppercase tracking-wide mb-1">AI Visibility Report</p>
+            <h1 className="text-2xl font-bold text-slate-900 truncate flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-slate-400 shrink-0" />
+              <span className="truncate">{data.hotelName || 'Your Business'}</span>
+            </h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <a
-                href={data.targetUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-slate-500 hover:text-slate-400 inline-flex items-center gap-1 truncate transition-colors"
-              >
+              <a href={data.targetUrl} target="_blank" rel="noreferrer" className="text-xs text-slate-400 hover:text-slate-600 inline-flex items-center gap-1 truncate transition-colors">
                 <span className="truncate">{data.targetUrl}</span> <ExternalLink className="h-3 w-3 shrink-0" />
               </a>
               {data.fromCache && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded shrink-0">
-                  <History className="h-2.5 w-2.5" /> cached
+                <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
+                  <History className="h-2.5 w-2.5" /> cached result
                 </span>
               )}
             </div>
+            <p className="text-sm text-slate-600 mt-3 leading-relaxed">{scoreInterpretation(data.overallScore)}</p>
             <button
               type="button"
               onClick={onRefresh}
               disabled={refreshing}
-              className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-cyan-400 hover:text-cyan-300 font-medium disabled:opacity-50 transition-colors"
+              className="mt-3 inline-flex items-center gap-1.5 text-[12px] text-cyan-700 hover:text-cyan-800 font-medium disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} /> Run fresh audit
             </button>
           </div>
         </div>
-
-        <div className="glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform">
-          <div>
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Pages Ingested</p>
-            <p className="text-3xl font-black text-white mt-1 tabular-nums">{pagesCount}</p>
-            <p className="text-xs text-slate-500 mt-1">Multi-page fact extraction</p>
-          </div>
-          <Layers className="h-8 w-8 text-slate-700" />
-        </div>
-
-        <div className={`glass-panel p-6 rounded-2xl flex items-center justify-between hover:-translate-y-0.5 transition-transform ${revealed ? 'animate-glow-pulse' : ''}`}>
-          <div>
-            <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">AI Readability Score</p>
-            <p className="text-xs text-slate-500 mt-1">Deterministically computed</p>
-          </div>
-          <ScoreGauge score={data.overallScore} revealed={revealed} />
-        </div>
       </div>
 
       {/* Executive Summary */}
       {data.summary && (
-        <div className="bg-violet-950/20 border border-violet-500/20 rounded-2xl p-5 flex items-start gap-3 animate-fade-in-up backdrop-blur-sm" style={{ animationDelay: '60ms' }}>
-          <Sparkles className="h-5 w-5 text-violet-400 shrink-0 mt-0.5" />
+        <div className="bg-violet-50 border border-violet-100 rounded-2xl p-5 flex items-start gap-3 animate-fade-in-up" style={{ animationDelay: '60ms' }}>
+          <Sparkles className="h-5 w-5 text-violet-500 shrink-0 mt-0.5" />
           <div>
-            <p className="text-xs font-semibold text-violet-300 uppercase tracking-wider mb-1">Executive Summary</p>
-            <p className="text-sm text-slate-300 leading-relaxed">{data.summary}</p>
+            <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide mb-1">The big picture</p>
+            <p className="text-sm text-slate-700 leading-relaxed">{data.summary}</p>
           </div>
         </div>
       )}
 
-      {/* Deterministic Category Score Breakdown + Crawled Pages, side by side to keep the top section compact */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Top priorities — a curated shortcut into the full list below, not a duplicate of it */}
+      <div className="bg-gradient-to-br from-cyan-50 to-white border border-cyan-100 rounded-2xl p-5 md:p-6 animate-fade-in-up" style={{ animationDelay: '80ms' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <Target className="h-4 w-4 text-cyan-700" />
+          <h2 className="text-sm font-bold text-slate-900">Start here</h2>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">The highest-impact things to fix first.</p>
+        {topPriorities.length === 0 ? (
+          <p className="text-sm text-slate-600">Nothing urgent — everything below is polish-level.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {topPriorities.map((item, i) => (
+              <TopPriorityCard key={item.id} item={item} rank={i + 1} targetUrl={data.targetUrl} onView={() => jumpToSuggestion(item.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Score breakdown + pages we looked at, side by side to keep the top section compact */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         {data.categoryScores && (
-          <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '75ms' }}>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-cyan-400" /> Score Breakdown
-            </h3>
-            <p className="text-[11px] text-slate-500 mb-4">
-              Computed deterministically — not model-generated, so re-running an audit reproduces the same scores. Suggestions below are a hybrid: rule-verified findings plus AI reasoning for
-              qualitative issues no rule can catch, with every AI-cited quote and URL checked against the actual crawl before it&apos;s shown.
-            </p>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Score breakdown</h3>
             <div className="space-y-3">
-              {CATEGORIES.filter((c) => c.key !== 'ALL').map((cat, idx) => (
-                <CategoryScoreBar key={cat.key} label={cat.label} score={data.categoryScores?.[cat.key] ?? 0} revealed={revealed} delayMs={idx * 90} />
+              {CATEGORY_KEYS.map((key, idx) => (
+                <div key={key} title={CATEGORY_DESCRIPTIONS[key]}>
+                  <CategoryScoreBar label={CATEGORY_LABELS[key]} score={data.categoryScores?.[key] ?? 0} revealed={revealed} delayMs={idx * 90} />
+                </div>
               ))}
             </div>
           </div>
         )}
 
-        <div className="glass-panel p-4 rounded-2xl animate-fade-in-up" style={{ animationDelay: '90ms' }}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-            <FileText className="h-4 w-4 text-cyan-400" /> Analyzed Pages ({data.pages.length})
-          </h3>
-          <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
-            {pagesByType.map((group) => (
-              <div key={group.type}>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                  {group.label} <span className="text-slate-600">({group.pages.length})</span>
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {group.pages.map((p) => (
-                    <span key={p.id} className="bg-white/5 text-slate-300 text-xs px-2.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 font-mono" title={p.url}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                      {p.url.replace(data.targetUrl, '') || '/'}
-                    </span>
-                  ))}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm animate-fade-in-up" style={{ animationDelay: '110ms' }}>
+          <button type="button" onClick={() => setShowPages((v) => !v)} className="w-full flex items-center justify-between text-left">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Pages we looked at ({data.pages.length})</h3>
+            <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${showPages ? 'rotate-180' : ''}`} />
+          </button>
+          {showPages && (
+            <div className="space-y-3 max-h-48 overflow-y-auto pr-1 mt-3">
+              {pagesByType.map((group) => (
+                <div key={group.type}>
+                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                    {group.label} <span className="text-slate-300">({group.pages.length})</span>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {group.pages.map((p) => (
+                      <span key={p.id} className="bg-slate-50 text-slate-600 text-xs px-2.5 py-1 rounded-full border border-slate-200" title={p.url}>
+                        {p.url.replace(data.targetUrl, '') || '/'}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
       {/* Generate Implementation Fixes — the one main agentic action, not a per-card trigger */}
       <div
-        className="glass-panel rounded-xl px-5 py-3.5 border-cyan-500/20 bg-gradient-to-br from-cyan-950/30 to-violet-950/10 animate-fade-in-up flex items-center justify-between gap-4 flex-wrap"
-        style={{ animationDelay: '105ms' }}
+        className="bg-white border border-cyan-100 rounded-xl px-5 py-3.5 shadow-sm animate-fade-in-up flex items-center justify-between gap-4 flex-wrap"
+        style={{ animationDelay: '120ms' }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center shrink-0 shadow-lg shadow-cyan-900/30">
+          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center shrink-0">
             <Bot className="h-4 w-4 text-white" />
           </div>
-          <p className="text-sm text-slate-300 truncate">
-            <span className="font-semibold text-white">{AGENT_NAME}</span> can draft ready-to-paste fixes for this report.
+          <p className="text-sm text-slate-600 truncate">
+            <span className="font-semibold text-slate-900">{AGENT_NAME}</span> can draft ready-to-paste fixes — plain instructions for you, code for your developer.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setShowAgentModal(true)}
           disabled={pendingCount === 0}
-          className="shrink-0 inline-flex items-center gap-2 text-sm font-bold font-mono uppercase tracking-wide text-slate-950 bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 disabled:text-white disabled:bg-slate-700 px-4 py-2 rounded-lg transition-all shadow-lg shadow-cyan-500/20"
+          className="shrink-0 inline-flex items-center gap-2 text-sm font-bold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:bg-slate-300 px-4 py-2 rounded-lg transition-all"
         >
           {pendingCount === 0 ? (
             <>
@@ -516,7 +543,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
       )}
 
       {/* Filters: severity toggles, category pills, page filter + Export */}
-      <div className="space-y-3 pt-2 border-t border-white/10 animate-fade-in-up" style={{ animationDelay: '120ms' }}>
+      <div className="space-y-3 pt-2 border-t border-slate-200 animate-fade-in-up" style={{ animationDelay: '130ms' }}>
         <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
           <div className="flex flex-wrap items-center gap-2">
             {ALL_SEVERITIES.map((sev) => {
@@ -527,20 +554,16 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
                   type="button"
                   onClick={() => toggleSeverity(sev)}
                   title={SEVERITY_DESCRIPTIONS[sev]}
-                  className={`text-xs px-2.5 py-1 rounded-full font-mono font-semibold border transition-opacity ${SEVERITY_STYLES[sev]} ${
-                    isActive ? 'opacity-100' : 'opacity-35 hover:opacity-70'
-                  }`}
+                  className={`text-xs px-2.5 py-1 rounded-full font-medium border transition-opacity ${
+                    sev === 'HIGH' ? 'bg-rose-50 text-rose-700 border-rose-200' : sev === 'MEDIUM' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                  } ${isActive ? 'opacity-100' : 'opacity-40 hover:opacity-70'}`}
                 >
-                  {severityCounts[sev]} {sev}
+                  {severityCounts[sev]} {SEVERITY_LABELS[sev]}
                 </button>
               );
             })}
             {isFiltered && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-white transition-colors ml-1"
-              >
+              <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-800 transition-colors ml-1">
                 <FilterX className="h-3.5 w-3.5" /> Clear filters
               </button>
             )}
@@ -549,7 +572,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
             <button
               type="button"
               onClick={allExpanded ? collapseAll : expandAll}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors"
             >
               {allExpanded ? (
                 <>
@@ -564,7 +587,7 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
             <button
               type="button"
               onClick={() => copyToClipboard(buildReportMarkdown({ ...data, suggestions }), 'full-report')}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-1.5 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors"
             >
               {copiedId === 'full-report' ? (
                 <>
@@ -581,50 +604,66 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map((cat) => (
+            <button
+              onClick={() => setSelectedCategory('ALL')}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                selectedCategory === 'ALL' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              All Issues
+            </button>
+            {CATEGORY_KEYS.map((key) => (
               <button
-                key={cat.key}
-                onClick={() => setSelectedCategory(cat.key)}
-                title={CATEGORY_DESCRIPTIONS[cat.key]}
+                key={key}
+                onClick={() => setSelectedCategory(key)}
+                title={CATEGORY_DESCRIPTIONS[key]}
                 className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  selectedCategory === cat.key
-                    ? 'bg-gradient-to-r from-cyan-500 to-violet-500 text-white shadow-md shadow-cyan-900/30'
-                    : 'bg-white/5 text-slate-400 hover:bg-white/10 border border-white/10'
+                  selectedCategory === key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {cat.label}
-                {cat.key !== 'ALL' && <span className="ml-1.5 opacity-60">{categoryCounts[cat.key] || 0}</span>}
+                {CATEGORY_LABELS[key]}
+                <span className="ml-1.5 opacity-60">{categoryCounts[key] || 0}</span>
               </button>
             ))}
           </div>
 
           {pageFilterOptions.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setShowMoreFilters((v) => !v)}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800 transition-colors shrink-0"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" /> More filters
+            </button>
+          )}
+        </div>
+
+        {showMoreFilters && pageFilterOptions.length > 1 && (
+          <div className="flex justify-end">
             <select
               value={selectedPageUrl}
               onChange={(e) => setSelectedPageUrl(e.target.value)}
               title="Filter suggestions down to a single scanned page"
-              className="bg-white/5 border border-white/10 text-slate-300 text-xs pl-3 pr-7 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 cursor-pointer max-w-[220px]"
+              className="bg-white border border-slate-200 text-slate-600 text-xs pl-3 pr-7 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 cursor-pointer max-w-[240px]"
             >
-              <option value="ALL" className="bg-slate-900">
-                All Pages ({data.pages.length})
-              </option>
+              <option value="ALL">All Pages ({data.pages.length})</option>
               {pageFilterOptions.map((p) => (
-                <option key={p.url} value={p.url} className="bg-slate-900">
+                <option key={p.url} value={p.url}>
                   {p.label}
                 </option>
               ))}
             </select>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Suggestions, grouped by category, rendered as an aligned table with per-row expand */}
+      {/* Suggestions, grouped by category, rendered as cards */}
       <div className="space-y-8">
         {filteredSuggestions.length === 0 ? (
-          <div className="glass-panel p-8 text-center rounded-2xl text-slate-500">
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-400">
             No issues match the current filters.
             {isFiltered && (
-              <button type="button" onClick={clearFilters} className="block mx-auto mt-2 text-xs text-cyan-400 hover:text-cyan-300">
+              <button type="button" onClick={clearFilters} className="block mx-auto mt-2 text-xs text-cyan-700 hover:text-cyan-800">
                 Clear filters
               </button>
             )}
@@ -633,40 +672,28 @@ export default function AuditReport({ data, onRefresh, refreshing }: { data: Aud
           groupedSuggestions.map((group) => (
             <div key={group.key} className="space-y-3">
               {selectedCategory === 'ALL' && (
-                <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                   {group.label}
-                  <span className="text-xs font-mono text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">{group.items.length}</span>
+                  <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{group.items.length}</span>
                 </h3>
               )}
-              <div className="glass-panel rounded-2xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <div className="min-w-[760px]">
-                    <div className={`grid ${GRID_COLS} gap-3 px-4 py-2.5 border-b border-white/10 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-500`}>
-                      <span>Severity</span>
-                      <span>Finding</span>
-                      <span>Category</span>
-                      <span>Status</span>
-                      <span>Confidence</span>
-                      <span className="text-right">Actions</span>
-                    </div>
-                    {group.items.map((item, idx) => (
-                      <SuggestionCard
-                        key={item.id}
-                        item={item}
-                        isOpen={!collapsedIds.has(item.id)}
-                        isNotApplicable={notApplicableIds.has(item.id)}
-                        copiedId={copiedId}
-                        onToggleOpen={() => toggleCollapsed(item.id)}
-                        onCopy={copyToClipboard}
-                        animationDelay={`${Math.min(idx, 8) * 45}ms`}
-                        pageTypeByUrl={pageTypeByUrl}
-                        pageTypeLabels={PAGE_TYPE_LABELS}
-                        targetUrl={data.targetUrl}
-                        isLast={idx === group.items.length - 1}
-                      />
-                    ))}
+              <div className="space-y-2.5">
+                {group.items.map((item, idx) => (
+                  <div key={item.id} id={`suggestion-${item.id}`}>
+                    <SuggestionCard
+                      item={item}
+                      isOpen={!collapsedIds.has(item.id)}
+                      isNotApplicable={notApplicableIds.has(item.id)}
+                      copiedId={copiedId}
+                      onToggleOpen={() => toggleCollapsed(item.id)}
+                      onCopy={copyToClipboard}
+                      animationDelay={`${Math.min(idx, 8) * 45}ms`}
+                      pageTypeByUrl={pageTypeByUrl}
+                      pageTypeLabels={PAGE_TYPE_LABELS}
+                      targetUrl={data.targetUrl}
+                    />
                   </div>
-                </div>
+                ))}
               </div>
             </div>
           ))

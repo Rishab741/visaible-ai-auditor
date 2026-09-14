@@ -34,21 +34,21 @@ export default async function AuditResultPage({ params }: { params: Promise<{ id
 
   if (scan.status === 'FAILED') {
     return (
-      <main className="aurora-backdrop min-h-screen text-slate-100 flex flex-col">
+      <main className="min-h-screen bg-slate-50 flex flex-col">
         <TopNav />
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="max-w-lg w-full glass-panel rounded-2xl p-8 text-center animate-fade-in-up">
-            <h1 className="text-xl font-bold text-white mb-2">Audit failed</h1>
-            <p className="text-sm text-slate-400 mb-1">{scan.targetUrl}</p>
-            <p className="text-sm text-rose-300 mt-4 mb-6">{scan.failureReason || 'The audit could not be completed.'}</p>
+          <div className="max-w-lg w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-8 text-center animate-fade-in-up">
+            <h1 className="text-xl font-bold text-slate-900 mb-2">Audit failed</h1>
+            <p className="text-sm text-slate-500 mb-1">{scan.targetUrl}</p>
+            <p className="text-sm text-rose-600 mt-4 mb-6">{scan.failureReason || 'The audit could not be completed.'}</p>
             <div className="flex items-center justify-center gap-4">
               <Link
                 href={`/audit/running?q=${encodeURIComponent(scan.targetUrl)}&forceRefresh=true`}
-                className="text-sm font-medium text-cyan-400 hover:text-cyan-300"
+                className="text-sm font-medium text-cyan-700 hover:text-cyan-800"
               >
                 Retry audit
               </Link>
-              <Link href="/dashboard" className="text-sm font-medium text-slate-400 hover:text-white">
+              <Link href="/dashboard" className="text-sm font-medium text-slate-500 hover:text-slate-900">
                 Back to dashboard
               </Link>
             </div>

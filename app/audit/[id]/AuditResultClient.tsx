@@ -15,7 +15,7 @@ export default function AuditResultClient({ initialScan }: { initialScan: AuditS
   };
 
   return (
-    <main className="aurora-backdrop min-h-screen text-slate-100 flex flex-col">
+    <main className="min-h-screen bg-slate-50 flex flex-col">
       <TopNav />
       <div className="flex-1 p-6 md:p-10">
         <AuditReport data={initialScan} onRefresh={handleRefresh} refreshing={false} />

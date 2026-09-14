@@ -159,13 +159,13 @@ export default function AgentFixModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in-up">
-      <div className="w-full max-w-lg glass-panel rounded-2xl p-6 md:p-7 shadow-2xl shadow-black/50 animate-scale-in relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in-up">
+      <div className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl p-6 md:p-7 shadow-2xl animate-scale-in relative">
         {(applied || error || awaitingAuthorization) && (
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
+            className="absolute top-4 right-4 text-slate-400 hover:text-slate-900 transition-colors"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -174,18 +174,18 @@ export default function AgentFixModal({
 
         {/* Persona */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="relative h-11 w-11 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center shrink-0 shadow-lg shadow-cyan-900/40">
+          <div className="relative h-11 w-11 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-500 flex items-center justify-center shrink-0 shadow-lg shadow-cyan-900/20">
             {!applied && !error && !awaitingAuthorization && <span className="absolute inset-0 rounded-xl bg-cyan-400/30 animate-pulse-ring" />}
             <Bot className="h-5 w-5 text-white relative" />
           </div>
           <div>
-            <p className="text-sm font-bold text-white">{AGENT_NAME}</p>
+            <p className="text-sm font-bold text-slate-900">{AGENT_NAME}</p>
             <p className="text-xs text-slate-400">Implementation Agent</p>
           </div>
         </div>
 
         {error ? (
-          <div className="text-sm text-rose-400 bg-rose-950/30 border border-rose-500/20 rounded-lg p-3">{error}</div>
+          <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">{error}</div>
         ) : (
           <>
             {/* Phase stepper */}
@@ -199,17 +199,17 @@ export default function AgentFixModal({
                   <div
                     key={phase.label}
                     className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors duration-500 ${
-                      isActive ? 'border-cyan-500/40 bg-cyan-950/30' : isDone ? 'border-cyan-800/30 bg-cyan-950/10' : 'border-white/5 bg-white/[0.02]'
+                      isActive ? 'border-cyan-300 bg-cyan-50' : isDone ? 'border-cyan-100 bg-cyan-50/60' : 'border-slate-100 bg-slate-50'
                     }`}
                   >
                     {isDone ? (
-                      <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0" />
+                      <CheckCircle2 className="h-4 w-4 text-cyan-600 shrink-0" />
                     ) : (
-                      <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-cyan-300' : 'text-slate-600'}`} />
+                      <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-cyan-600' : 'text-slate-300'}`} />
                     )}
-                    <span className={`text-xs font-mono ${isActive ? 'text-cyan-200' : isDone ? 'text-cyan-400/70' : 'text-slate-600'}`}>{phase.label}</span>
+                    <span className={`text-xs font-medium ${isActive ? 'text-cyan-800' : isDone ? 'text-cyan-700/80' : 'text-slate-400'}`}>{phase.label}</span>
                     {showCms && (
-                      <span className="ml-auto shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-slate-300">{cmsLabel}</span>
+                      <span className="ml-auto shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{cmsLabel}</span>
                     )}
                   </div>
                 );
@@ -222,12 +222,12 @@ export default function AgentFixModal({
                 const status = itemStatus[t.id];
                 return (
                   <div key={t.id} className="flex items-center gap-2.5 text-xs py-1">
-                    {status === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-cyan-400 shrink-0" />}
-                    {status === 'skipped' && <MinusCircle className="h-3.5 w-3.5 text-slate-500 shrink-0" />}
-                    {status === 'error' && <X className="h-3.5 w-3.5 text-rose-400 shrink-0" />}
-                    {status === 'processing' && <Loader2 className="h-3.5 w-3.5 text-cyan-400 shrink-0 animate-spin" />}
-                    {status === 'queued' && <span className="h-3.5 w-3.5 rounded-full border border-slate-700 shrink-0" />}
-                    <span className={`truncate ${status === 'queued' ? 'text-slate-600' : 'text-slate-300'}`}>{t.issue}</span>
+                    {status === 'done' && <CheckCircle2 className="h-3.5 w-3.5 text-cyan-600 shrink-0" />}
+                    {status === 'skipped' && <MinusCircle className="h-3.5 w-3.5 text-slate-400 shrink-0" />}
+                    {status === 'error' && <X className="h-3.5 w-3.5 text-rose-500 shrink-0" />}
+                    {status === 'processing' && <Loader2 className="h-3.5 w-3.5 text-cyan-600 shrink-0 animate-spin" />}
+                    {status === 'queued' && <span className="h-3.5 w-3.5 rounded-full border border-slate-300 shrink-0" />}
+                    <span className={`truncate ${status === 'queued' ? 'text-slate-300' : 'text-slate-700'}`}>{t.issue}</span>
                   </div>
                 );
               })}
@@ -236,27 +236,27 @@ export default function AgentFixModal({
             {/* Authorization gate — real interaction: nothing is reflected in the
                 report until the user explicitly authorizes it here. */}
             {awaitingAuthorization && draftResults && (
-              <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
-                <div className="flex items-start gap-2 text-xs text-violet-300 bg-violet-950/30 border border-violet-500/20 rounded-lg p-3">
+              <div className="mt-5 pt-4 border-t border-slate-100 space-y-3">
+                <div className="flex items-start gap-2 text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-lg p-3">
                   <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>
                     {AGENT_NAME} has drafted {draftResults.filter((r) => r.implementationSnippet).length} fix
                     {draftResults.filter((r) => r.implementationSnippet).length === 1 ? '' : 'es'} for your{' '}
-                    <strong className="text-violet-200">{cmsLabel}</strong> site. Nothing is applied to your report until you authorize it.
+                    <strong className="text-violet-900">{cmsLabel}</strong> site. Nothing is applied to your report until you authorize it.
                   </span>
                 </div>
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={onClose}
-                    className="text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg transition-colors"
+                    className="text-xs text-slate-500 hover:text-slate-900 px-3 py-2 rounded-lg transition-colors"
                   >
                     Review later
                   </button>
                   <button
                     type="button"
                     onClick={handleAuthorize}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r from-cyan-500 to-violet-500 hover:from-cyan-400 hover:to-violet-400 px-4 py-2 rounded-lg transition-all shadow-lg shadow-cyan-900/30"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-gradient-to-r from-cyan-500 to-violet-500 hover:from-cyan-400 hover:to-violet-400 px-4 py-2 rounded-lg transition-all shadow-lg shadow-cyan-900/20"
                   >
                     <ShieldCheck className="h-3.5 w-3.5" /> Authorize &amp; Apply
                   </button>
@@ -265,20 +265,20 @@ export default function AgentFixModal({
             )}
 
             {applying && (
-              <div className="mt-5 pt-4 border-t border-white/10 flex items-center gap-2 text-xs text-cyan-300">
+              <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-2 text-xs text-cyan-700">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying authorized fixes to your report...
               </div>
             )}
 
             {applied && (
-              <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
-                <p className="text-xs text-cyan-400 font-medium flex items-center gap-1.5">
+              <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
+                <p className="text-xs text-cyan-700 font-medium flex items-center gap-1.5">
                   <CheckCircle2 className="h-3.5 w-3.5" /> Authorized and applied to your report.
                 </p>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="text-xs text-white bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded-lg transition-colors"
+                  className="text-xs text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors"
                 >
                   View Results
                 </button>

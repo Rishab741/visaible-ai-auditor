@@ -49,6 +49,7 @@ model OptimizationSuggestion {
   issue           String
   impactReason    String     // Why AI search/recommendation engines struggle with this
   suggestedFix    String     // Actionable fix / structured example
+  plainSummary    String?    // One or two jargon-free sentences (no Schema.org/JSON-LD/HTML) explaining the issue and why it matters, for a non-technical reader — see lib/analyzer.ts. Nullable: suggestions from before this field existed fall back to `issue` in the UI rather than being backfilled.
   implementationSnippet String? // Ready-to-paste artifact for the detected CMS (see lib/crawler.ts DetectedCms), when the fix is snippet-shaped
   affectedUrls    String     // Comma-separated or JSON array string
   currentSnippet  String?    // Problematic text snippet if available
